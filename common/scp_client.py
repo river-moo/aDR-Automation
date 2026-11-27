@@ -334,16 +334,31 @@ class ConsoleClient:
         return cipher.encrypt(password.encode()).hex()
 
     def login_ticket(self, username, password, mode):
-        self.login_page = ""
-        try:  # 로그인 화면: 사전 쿠키(SF_SID, CSRF) + 공개키(RSAModulus)
-            self.login_page = self.s.get(self.base + "/login", timeout=self.timeout).text
-        except requests.RequestException:
-            pass
+        """콘솔과 같은 로그인. 6.11.3 실측 흐름:
+          1) GET /login -> HTML 안 window.VMP.data.ticket(일회용 UUID)과 RSAModulus
+          2) 쿠키 CSRFPreventionToken=<ticket>, 헤더 Csrfpreventiontoken=빈 값으로
+             POST /ticket (폼: username, password(RSA), status=agree, user_login=true)
+          3) 응답 data.client_token / data.CSRFPreventionToken 으로 이후 요청"""
+        import re
+        self.s.cookies.clear()
+        for h in ("Client_token", "Csrfpreventiontoken", "Sid"):
+            self.s.headers.pop(h, None)
+        self.s.cookies.set("language", "en_US")
+        self.s.cookies.set("UEDC_LOGIN_LANGUAGE", "en_US")
+        r = self.s.get(self.base + "/login", timeout=self.timeout)
+        self.login_page = r.text
+        m = re.search(r"VMP\.data\.ticket\s*=\s*['\"]([^'\"]+)['\"]", self.login_page)
+        if not m:
+            raise SCPError("[console] 로그인 화면에서 ticket 값을 찾지 못했습니다")
+        ticket = m.group(1)
+        self.s.cookies.set("CSRFPreventionToken", ticket)
         form = {"username": username, "password": self._encrypt(password, mode),
                 "status": "agree", "user_login": "true"}
-        r = self.s.post(self.base + "/ticket", data=form, timeout=self.timeout,
-                        headers={"Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-                                 "Accept": "application/json, text/javascript, */*; q=0.01"})
+        r = self.s.post(self.base + "/ticket", data=form, timeout=self.timeout, headers={
+            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+            "Accept": "application/json, text/javascript, */*; q=0.01",
+            "X-Requested-With": "XMLHttpRequest", "Csrfpreventiontoken": "",
+            "Origin": self.base, "Referer": self.base + "/login"})
         try:
             j = r.json()
         except ValueError:
