@@ -105,7 +105,7 @@ def check_rp(rp, need_states=None, out=log):
 
 
 def wait_rp(cc, rp_id, until_states, action=None, before_ulog=None, timeout=3600, interval=10, out=log,
-            before=None):
+            before=None, before_failed=0):
     """복구 계획 상태가 until_states 중 하나가 될 때까지 대기. 실패 작업이 생기면 예외.
     before_ulog: 실행 전 status.ulog_id. 이전 동작의 완료 상태를 새 동작 완료로 착각하지 않도록
     ulog_id가 바뀐 뒤의 상태만 인정한다."""
@@ -122,10 +122,9 @@ def wait_rp(cc, rp_id, until_states, action=None, before_ulog=None, timeout=3600
             out(f"  상태 {state} (동작 {act}) 진행 {prog.get('succeed', 0)}/{prog.get('total', 0)} "
                 f"실패 {prog.get('failed', 0)}  [{int(time.time() - started)}s]")
             seen = cur
-        if prog.get("failed"):
+        # 실패 건수는 실행 전보다 늘었을 때만 실패로 본다 (실패한 드릴을 정리할 때는 이전 실패 건수가 남아 있음)
+        if (prog.get("failed") or 0) > (before_failed or 0):
             raise RuntimeError(f"복구 계획 작업 실패 {prog.get('failed')}건 - 콘솔 Tasks에서 원인 확인")
-        if state in ("failed", "failure") and state not in until_states:
-            raise RuntimeError(f"복구 계획 상태가 '{state}'(동작 {act})로 끝남 - 콘솔 Tasks에서 원인 확인 후 cleanup으로 정리")
         if first is None:
             first = (act, state)
         elif (act, state) != first:
@@ -136,6 +135,9 @@ def wait_rp(cc, rp_id, until_states, action=None, before_ulog=None, timeout=3600
                    or (rp.get("status") or {}).get("ulog_id") != before_ulog   # 작업 ID가 바뀜
                    or (before is not None and (act, state) != before)          # 실행 전과 (동작, 상태)가 다름
                    or moved)                                                   # 실행 후 상태가 한 번이라도 바뀜
+        # 실패 상태도 새 실행의 결과일 때만 판단 (실행 직후 이전 'failed'가 잠깐 보이는 것은 무시)
+        if new_run and state in ("failed", "failure") and state not in until_states:
+            raise RuntimeError(f"복구 계획 상태가 '{state}'(동작 {act})로 끝남 - 콘솔 Tasks에서 원인 확인 후 cleanup으로 정리")
         if new_run and state in until_states and (action is None or act == action):
             return rp
         time.sleep(interval)
@@ -186,3 +188,34 @@ def build_drill_body(cc, rp, need_sync=0, resource_reserve=0):
         raise LookupError(f"드릴 본문 값이 비어 있는 VM: {', '.join(bad)}")
     return {"drill": {"rps": [{"rp_id": rp["id"], "servers": servers}],
                       "need_sync": int(need_sync), "enable_resource_reserve": int(resource_reserve)}}
+
+
+# ---------------- 결과 알림 (NOTIFY_WEBHOOK)
+def notify(text, ok=True):
+    """NOTIFY_WEBHOOK으로 결과를 보낸다. 실패해도 작업 결과에는 영향 없음."""
+    import requests
+    from scp_client import env
+    url = env("NOTIFY_WEBHOOK", "")
+    if not url:
+        return False
+    fmt = env("NOTIFY_FORMAT", "generic").lower()
+    icon = "✅" if ok else "❌"
+    msg = f"{icon} {text}"
+    if fmt in ("slack", "mattermost"):
+        body = {"text": msg}
+    elif fmt == "teams":
+        body = {"@type": "MessageCard", "@context": "http://schema.org/extensions",
+                "summary": "aDR", "themeColor": "2EB886" if ok else "D00000", "text": msg.replace("\n", "<br>")}
+    elif fmt == "telegram":
+        body = {"chat_id": env("NOTIFY_CHAT_ID", ""), "text": msg}
+    else:
+        body = {"ok": ok, "text": msg}
+    try:
+        r = requests.post(url, json=body, timeout=10)
+        if r.status_code >= 300:
+            log(f"[notify] 알림 실패 HTTP {r.status_code}: {r.text[:200]}")
+            return False
+        return True
+    except Exception as e:  # noqa: BLE001
+        log(f"[notify] 알림 실패: {e}")
+        return False

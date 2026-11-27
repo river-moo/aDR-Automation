@@ -35,22 +35,22 @@ say "python: $PY ($("$PY" -V 2>&1))"
 
 # ---- 2. 의존성 (vendor/)
 if [ "${NEEDS_DEPS:-0}" = "1" ]; then
-  ARCH="$(uname -m)"
+  ARCH="$(uname -m)"; OS="$(uname -s)"
   say "의존성 구성 (arch=$ARCH, 오프라인 wheel)"
   rm -rf vendor && mkdir -p vendor
-  "$PY" - "$ARCH" <<'PYEOF'
+  "$PY" - "$ARCH" "$OS" <<'PYEOF'
 import glob, sys, zipfile
-arch = sys.argv[1]
+arch, osname = sys.argv[1], sys.argv[2]
 picked = []
 for w in sorted(glob.glob("wheels/*.whl")):
     name = w.rsplit("/", 1)[-1]
-    if "manylinux" in name and arch not in name:
-        continue  # 다른 아키텍처용 바이너리
+    if "manylinux" in name and (osname != "Linux" or arch not in name):
+        continue  # 다른 OS/아키텍처용 바이너리
     zipfile.ZipFile(w).extractall("vendor")
     picked.append(name)
 print("\n".join("  - " + p for p in picked))
 if not any(p.startswith("pycryptodome") for p in picked):
-    print("  ! pycryptodome 바이너리가 이 아키텍처(%s)용으로 없습니다. token 인증은 불가, ec2 인증은 정상" % arch)
+    print("  - pycryptodome 바이너리 없음(%s/%s) -> 내장 순수 파이썬 RSA로 동작 (기능 동일)" % (osname, arch))
 PYEOF
   PYTHONPATH="$DIR/vendor:$DIR/lib" "$PY" -S -c 'import requests, urllib3; print("  requests", requests.__version__, "/ urllib3", urllib3.__version__)' \
     || die "의존성 로드 실패"
@@ -62,6 +62,13 @@ if [ ! -f .env ]; then
   say ".env 생성됨 -> 값 수정 필요: vi $DIR/.env"
 else
   say ".env 유지 (기존 값 사용)"
+  # 새 버전에서 추가된 설정 키는 기본값으로 뒤에 붙임 (기존 값은 건드리지 않음)
+  added="$(awk -F= 'NR==FNR { if ($0 ~ /^[A-Z_][A-Z0-9_]*=/) have[$1]=1; next }
+                   $0 ~ /^[A-Z_][A-Z0-9_]*=/ && !($1 in have) { print }' .env .env.example)"
+  if [ -n "$added" ]; then
+    { echo ""; echo "# ---- $(cat VERSION 2>/dev/null) 업데이트로 추가된 설정 (설명은 .env.example 참고)"; echo "$added"; } >> .env
+    say "새 설정 키 추가됨: $(echo "$added" | cut -d= -f1 | tr '\n' ' ')"
+  fi
 fi
 chmod 600 .env
 chmod +x run.sh main.py 2>/dev/null || true

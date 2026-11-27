@@ -28,6 +28,50 @@ class SCPError(RuntimeError):
     pass
 
 
+def rsa_encrypt(mod_hex, exp, data, pad="pkcs1"):
+    """RSA 공개키 암호화 -> 16진수 (모듈러스 길이로 0 채움).
+    pycryptodome이 있으면 사용, 없으면 순수 파이썬으로 처리 (아키텍처·OS 무관하게 동작)."""
+    import hashlib
+    if len(mod_hex) % 2:
+        mod_hex = "0" + mod_hex
+    n = int(mod_hex, 16)
+    k = (n.bit_length() + 7) // 8
+    try:
+        from Crypto.Cipher import PKCS1_OAEP, PKCS1_v1_5
+        from Crypto.PublicKey import RSA
+        pub = RSA.construct((n, exp)).publickey()
+        c = PKCS1_OAEP.new(pub) if pad == "oaep" else PKCS1_v1_5.new(pub)
+        return c.encrypt(data).hex().zfill(len(mod_hex))
+    except ImportError:
+        pass
+    if pad == "oaep":  # RSAES-OAEP, SHA-1, MGF1-SHA1, label 없음 (pycryptodome 기본값과 동일)
+        hlen = 20
+        if len(data) > k - 2 * hlen - 2:
+            raise SCPError("암호화할 값이 너무 깁니다")
+        lhash = hashlib.sha1(b"").digest()
+        db = lhash + b"\x00" * (k - len(data) - 2 * hlen - 2) + b"\x01" + data
+        seed = os.urandom(hlen)
+
+        def mgf1(seed_, length):
+            out, i = b"", 0
+            while len(out) < length:
+                out += hashlib.sha1(seed_ + i.to_bytes(4, "big")).digest()
+                i += 1
+            return out[:length]
+        mdb = bytes(a ^ b for a, b in zip(db, mgf1(seed, k - hlen - 1)))
+        mseed = bytes(a ^ b for a, b in zip(seed, mgf1(mdb, hlen)))
+        em = b"\x00" + mseed + mdb
+    else:  # RSAES-PKCS1-v1_5
+        if len(data) > k - 11:
+            raise SCPError("암호화할 값이 너무 깁니다")
+        ps = b""
+        while len(ps) < k - len(data) - 3:
+            ps += bytes(b for b in os.urandom(k) if b)
+        em = b"\x00\x02" + ps[:k - len(data) - 3] + b"\x00" + data
+    c = pow(int.from_bytes(em, "big"), exp, n)
+    return c.to_bytes(k, "big").hex().zfill(len(mod_hex))
+
+
 # ---------------------------------------------------------------- .env 로더
 def load_env(path=None):
     """KEY=VALUE 형식의 .env를 읽어 os.environ에 넣는다 (이미 설정된 값은 유지).
@@ -134,10 +178,6 @@ class SCPClient:
 
     # -------- 토큰 인증
     def login(self):
-        from binascii import a2b_hex
-        from Crypto.Cipher import PKCS1_OAEP, PKCS1_v1_5
-        from Crypto.PublicKey import RSA
-        from Crypto.Util.number import bytes_to_long
         errors = []
         for ver, prefix in (("v2", "/janus/v2"), ("v1", "/janus")):
             try:
@@ -145,10 +185,7 @@ class SCPClient:
                 r.raise_for_status()
                 b = r.json()
                 mod = (b.get("public_key") or (b.get("data") or {}).get("public_key") or "").strip()
-                mod = "0" + mod if len(mod) % 2 else mod
-                pub = RSA.construct((bytes_to_long(a2b_hex(mod)), 0x10001)).publickey()
-                cipher = PKCS1_OAEP.new(pub) if ver == "v2" else PKCS1_v1_5.new(pub)
-                enc = cipher.encrypt(self.password.encode()).hex()
+                enc = rsa_encrypt(mod, 0x10001, self.password.encode(), "oaep" if ver == "v2" else "pkcs1")
                 body = {"auth": {"passwordCredentials": {"username": self.username, "password": enc}}}
                 r = self.s.post(self.base + prefix + "/authenticate", json=body, timeout=self.timeout)
                 r.raise_for_status()
@@ -305,10 +342,6 @@ class ConsoleClient:
     }
 
     def _encrypt(self, plaintext, mode):
-        from binascii import a2b_hex
-        from Crypto.Cipher import PKCS1_OAEP, PKCS1_v1_5
-        from Crypto.PublicKey import RSA
-        from Crypto.Util.number import bytes_to_long
         import re
         key_path, pad = self.ENC_MODES[mode]
         exp = 0x10001
@@ -327,11 +360,8 @@ class ConsoleClient:
             r.raise_for_status()
             b = r.json()
             mod = (b.get("public_key") or (b.get("data") or {}).get("public_key") or "").strip()
-        if len(mod) % 2:  # 앞자리 0이 빠진 16진수(jsbn 형식) 보정 - 6.11.3 v1 공개키 실측
-            mod = "0" + mod
-        pub = RSA.construct((bytes_to_long(a2b_hex(mod)), exp)).publickey()
-        cipher = PKCS1_OAEP.new(pub) if pad == "oaep" else PKCS1_v1_5.new(pub)
-        return cipher.encrypt(plaintext.encode()).hex().zfill(len(mod))
+        # 앞자리 0이 빠진 16진수(jsbn 형식)는 rsa_encrypt가 보정 - 6.11.3 v1 공개키 실측
+        return rsa_encrypt(mod, exp, plaintext.encode(), pad)
 
     def login_ticket(self, username, password, mode):
         """콘솔 로그인 버튼과 같은 흐름 (6.11.3 로그인 JS 48214 모듈 ge() 실측):

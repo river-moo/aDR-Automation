@@ -1,0 +1,8 @@
+# aDR 드릴 정기 실행 예시 - crontab -e 에 붙여넣기 (경로는 설치 위치에 맞게)
+# 분 시 일 월 요일
+# 매월 첫째 토요일 02:00 드릴 전체 실행 (cron은 "일"과 "요일"을 OR로 처리하므로 날짜는 date로 검사)
+0 2 * * 6  [ "$(date +\%d)" -le 07 ] && TRIGGER_SOURCE=cron /opt/sangfor-scp/04-adr-drill/trigger.sh drill >/dev/null 2>&1
+# 매주 일요일 03:00 드릴
+# 0 3 * * 0  TRIGGER_SOURCE=cron /opt/sangfor-scp/04-adr-drill/trigger.sh drill >/dev/null 2>&1
+# 매일 08:00 상태만 기록 (변경 없음)
+# 0 8 * * *  /opt/sangfor-scp/04-adr-drill/trigger.sh status >> /opt/sangfor-scp/04-adr-drill/logs/status.log 2>&1

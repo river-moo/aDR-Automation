@@ -1,0 +1,14 @@
+# /etc/systemd/system/adr-drill.service
+# 한 번 실행: systemctl start adr-drill   /  로그: journalctl -u adr-drill  (파일 로그는 logs/)
+[Unit]
+Description=Sangfor SCP aDR drill (04-adr-drill)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+Environment=TRIGGER_SOURCE=systemd
+WorkingDirectory=/opt/sangfor-scp/04-adr-drill
+ExecStart=/opt/sangfor-scp/04-adr-drill/trigger.sh drill
+# 드릴 최대 시간 (TASK_TIMEOUT보다 길게)
+TimeoutStartSec=3h

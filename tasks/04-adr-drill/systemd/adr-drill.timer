@@ -1,0 +1,15 @@
+# /etc/systemd/system/adr-drill.timer
+# 활성화: systemctl daemon-reload && systemctl enable --now adr-drill.timer
+# 다음 실행 확인: systemctl list-timers adr-drill.timer
+[Unit]
+Description=Sangfor SCP aDR drill schedule
+
+[Timer]
+# 매월 첫째 토요일 02:00 (형식: 요일 년-월-일 시:분:초)
+OnCalendar=Sat *-*-01..07 02:00:00
+# 서버가 꺼져 있어 놓친 실행은 켜진 뒤 실행하지 않음 (드릴은 정해진 시간에만)
+Persistent=false
+RandomizedDelaySec=0
+
+[Install]
+WantedBy=timers.target

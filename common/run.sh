@@ -7,4 +7,6 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export PYTHONPATH="$DIR/lib:$DIR/vendor${PYTHONPATH:+:$PYTHONPATH}"
 export SCP_ENV_FILE="${SCP_ENV_FILE:-$DIR/.env}"
 export PYTHONDONTWRITEBYTECODE=1
-exec "$PY" -S "$DIR/main.py" "$@"   # -S: OS에 깔린 파이썬 패키지와 섞이지 않게 격리
+SCRIPT="$DIR/main.py"
+if [ "${1:-}" = "--webhook" ] && [ -f "$DIR/webhook.py" ]; then SCRIPT="$DIR/webhook.py"; shift; fi
+exec "$PY" -S "$SCRIPT" "$@"   # -S: OS에 깔린 파이썬 패키지와 섞이지 않게 격리

@@ -3,7 +3,7 @@
 #   ./scripts/deploy.sh root@192.168.0.240                 # 전체 태스크 -> /opt/sangfor-scp
 #   ./scripts/deploy.sh root@192.168.0.240 01 03           # 일부
 #   DEST=/srv/scp ./scripts/deploy.sh root@10.0.0.5 04     # 설치 경로 변경
-# 기존 .env, endpoints.json, reports/ 는 보존한다.
+# 기존 .env, reports/, logs/ 는 보존한다. endpoints.json은 새 버전으로 교체하고 이전 파일은 .backup/에 남긴다.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TARGET="${1:?사용법: deploy.sh user@host [태스크번호...]}"; shift
@@ -44,14 +44,21 @@ for t in .incoming/*.tar.gz; do
   if [ -d "\$n" ]; then
     keepdir=".backup/\$n-\$(date +%Y%m%d%H%M%S)"
     mkdir -p "\$keepdir"
-    for keep in .env endpoints.json reports har out; do
+    for keep in .env endpoints.json reports har out logs; do
       if [ -e "\$n/\$keep" ]; then cp -a "\$n/\$keep" "\$keepdir/"; fi
     done
   else
     keepdir=""
   fi
   extract "\$t"
-  if [ -n "\$keepdir" ]; then cp -a "\$keepdir"/. "\$n"/; fi
+  if [ -n "\$keepdir" ]; then
+    for keep in .env reports har out logs; do
+      if [ -e "\$keepdir/\$keep" ]; then rm -rf "\$n/\$keep"; cp -a "\$keepdir/\$keep" "\$n/"; fi
+    done
+    if [ -f "\$keepdir/endpoints.json" ] && [ "\$(cksum < "\$keepdir/endpoints.json")" != "\$(cksum < "\$n/endpoints.json")" ]; then
+      echo "[deploy] \$n/endpoints.json 을 새 버전으로 교체했습니다 (이전 파일: $DEST/\$keepdir/endpoints.json)"
+    fi
+  fi
   ( cd "\$n" && ./install.sh )
 done
 rm -rf .incoming

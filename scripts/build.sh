@@ -24,6 +24,9 @@ build_one() {
     rm -rf "$stage" && mkdir -p "$stage/lib"
     cp "$src/main.py" "$src/README.md" "$src/task.conf" "$stage/"
     [ -f "$src/endpoints.json" ] && cp "$src/endpoints.json" "$stage/"
+    for x in ${EXTRA:-}; do cp -R "$src/$x" "$stage/"; done
+    cp -R "$ROOT/docs" "$stage/docs"
+    sed -i.bak 's#\.\./\.\./docs/#docs/#g' "$stage/README.md" && rm -f "$stage/README.md.bak"
     for f in $COMMON; do cp "$ROOT/common/$f" "$stage/lib/"; done
     cp "$ROOT/common/install.sh" "$ROOT/common/run.sh" "$stage/"
     if [ "$NEEDS_SCP" = "1" ]; then
@@ -38,6 +41,8 @@ build_one() {
     fi
     echo "$VERSION" > "$stage/VERSION"
     chmod +x "$stage/install.sh" "$stage/run.sh" "$stage/main.py"
+    [ -f "$stage/trigger.sh" ] && chmod +x "$stage/trigger.sh"
+    [ -f "$stage/webhook.py" ] && chmod +x "$stage/webhook.py"
     ( cd "$DIST/.stage"
       tar "${TAR_OWNER[@]}" -czf "$DIST/$name.tar.gz" "$name"
       rm -f "$DIST/$name.zip"; zip -qrX "$DIST/$name.zip" "$name" -x "*.DS_Store" )

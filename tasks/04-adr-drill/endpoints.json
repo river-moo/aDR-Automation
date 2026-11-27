@@ -1,19 +1,14 @@
 {
   "_comment": [
-    "SCP 6.11.3: 드릴·전환 실행 API는 콘솔(https://SCP:4430/admin/...)에 있고 복구 계획 단위로 동작한다.",
-    "Task 02 캡처(또는 Copy as cURL)로 path/method/body를 채운다.",
-    "치환 변수: ${rp_id} 복구 계획 ID, ${rp_name} 이름, ${project_id} 프로젝트 ID",
+    "SCP 6.11.3 콘솔 내부 API 정의. 드릴·전환은 공식 OpenAPI에 없고 콘솔(https://SCP:4430/admin/...)에 있다.",
+    "2026-11-28 랩(SCP 6.11.3) 실측 검증: drill_start, drill_cleanup, clear_state (verified=true)",
+    "failover/failback 은 미확인(TODO) - 확인 전에는 실행 거부됨",
+    "치환 변수: ${rp_id} 복구 계획 ID, ${rp_name} 이름, ${project_id}, ${drlog_id} 현재 드릴 작업 ID(status.drlog_id), ${drlog_root_id}",
     "api: console(4430, 기본) | openapi(443 /janus)",
-    "require_state: 실행 전 복구 계획 상태 조건 (dr-rp-list status.state)",
-    "wait: 실행 후 dr-rp-list 상태가 until_state가 될 때까지 대기 (action이 있으면 status.action도 일치해야 함)",
-    "verified: 랩에서 단독 호출로 동작 확인 후에만 true (false면 실행 거부)",
-    "SCP 6.11.3 콘솔 JS(모듈 46667)에서 확인: 시작은 PUT /admin/dr/rps/state/transform {rps:[...]}, 종료는 DELETE /admin/dr/rps/{rp_id}/drill/{drlog_id}",
-    "${drlog_id}: dr-rp-list status.drlog_id (현재 드릴 작업 ID)",
-    "6.11.3 실측(dr/drlogs): 드릴 action=drill(약 10분), 테스트 종료 action=drill_clean(약 1분, 드릴의 하위 작업)",
-    "clear_state: 콘솔이 테스트 종료 후 'Change DR state'로 부르는 상태 정리 API (finish/failure -> ready)",
-    "drill_start 본문은 body_builder=drill 로 자동 생성 (GET /admin/view/dr-server-list 값 사용). 6.11.3 캡처 본문과 같은 형식",
-    "method는 캡처에서 확인 못 함: POST로 보내고 HTTP 405면 PUT으로 한 번 재시도 (405는 실행 안 된 것이라 안전)",
-    "2026-11-28 랩(SCP 6.11.3) 실측 검증 완료: drill_start, drill_cleanup, clear_state"
+    "body_builder=drill: 드릴 본문을 GET /admin/view/dr-server-list 값으로 자동 생성",
+    "require_state: 실행 전 계획 상태(status.state) 조건 / wait: 실행 후 기다릴 상태 (action 지정 시 status.action도 일치)",
+    "verified: 랩에서 동작 확인 후에만 true. false인 단계가 있으면 --execute 거부",
+    "SCP 버전이 바뀌면 다시 확인할 것 (docs/API-MAP.md)"
   ],
   "endpoints": {
     "drill_start": {

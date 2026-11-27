@@ -1,0 +1,16 @@
+# /etc/systemd/system/adr-webhook.service - HTTP 웹훅 수신기 상시 실행
+# 활성화: systemctl daemon-reload && systemctl enable --now adr-webhook
+# .env 에 WEBHOOK_TOKEN 을 먼저 설정해야 시작됩니다
+[Unit]
+Description=Sangfor SCP aDR webhook trigger (04-adr-drill)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+WorkingDirectory=/opt/sangfor-scp/04-adr-drill
+ExecStart=/opt/sangfor-scp/04-adr-drill/run.sh --webhook
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
