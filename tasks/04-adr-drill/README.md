@@ -21,6 +21,26 @@ vi endpoints.json                                    # 캡처 결과로 path/bod
 ./run.sh failover -p aDR-Auto-SCP-Test --execute --confirm aDR-Auto-SCP-Test
 ```
 
+## 드릴 본문 자동 생성
+
+드릴 시작(`POST /admin/dr/rps/drill`) 본문은 `GET /admin/view/dr-server-list`에서 계획에 속한 VM 값을 모아 자동으로 만듭니다.
+(`pg_id`, `server_id`, `protection_id`, 원본/DR 클러스터, 복구 저장소. 복구 시점은 최신)
+dry-run에서 만들어질 본문을 미리 볼 수 있어요. 6.11.3 실측 캡처 본문과 일치하는 것을 확인했습니다.
+
+| `.env` | 의미 | 기본 |
+|---|---|---|
+| `DRILL_NEED_SYNC` | 1이면 드릴 전 데이터 동기화 | `0` |
+| `DRILL_RESOURCE_RESERVE` | 1이면 리소스 예약 | `0` |
+
+## 랩 검증 (`--trust`)
+
+`endpoints.json`의 `verified`를 바꾸지 않고, 이번 실행에서만 검증된 것으로 취급합니다.
+```bash
+./run.sh cleanup -p aDR-Auto-SCP-Test --execute --trust drill_cleanup,clear_state
+./run.sh drill   -p aDR-Auto-SCP-Test --execute --trust drill_start,drill_cleanup,clear_state
+```
+랩에서 성공하면 `endpoints.json`의 해당 항목을 `"verified": true`로 바꾸세요.
+
 ## 안전장치
 
 - `--execute` 없으면 항상 dry-run

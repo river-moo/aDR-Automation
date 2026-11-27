@@ -126,3 +126,49 @@ def wait_rp(cc, rp_id, until_states, action=None, before_ulog=None, timeout=3600
             return rp
         time.sleep(interval)
     raise TimeoutError(f"대기 시간 초과 ({timeout}s): 마지막 상태 {seen}")
+
+
+# ================================================================ 드릴 본문 자동 생성
+# 6.11.3 실측: GET /admin/view/dr-server-list 의 VM 행에 드릴 본문 값이 모두 들어 있다.
+SERVER_LIST = "/admin/view/dr-server-list"
+
+
+def server_list(cc):
+    rows, start = [], 0
+    while True:
+        d = cc.request("GET", SERVER_LIST, params={"start": start, "limit": 100})
+        page = d.get("data", [])
+        rows.extend(page)
+        if len(page) < 100:
+            return rows
+        start += 100
+
+
+def build_drill_body(cc, rp, need_sync=0, resource_reserve=0):
+    """콘솔 'Perform DR Test' 창이 보내는 본문을 그대로 만든다 (복구 시점은 최신 = 생략)."""
+    rows = {r["id"]: r for r in server_list(cc)}
+    servers, missing = [], []
+    for pg in rp.get("pgs") or []:
+        for s in pg.get("servers") or []:
+            row = rows.get(s["server_id"])
+            if not row:
+                missing.append(s["server_id"])
+                continue
+            clusters = lambda key: [{"cluster_id": c["cluster_id"], "status": c["status"]}  # noqa: E731
+                                    for c in row.get(key) or []]
+            servers.append({
+                "pg_id": (row.get("pg") or {}).get("pg_id") or pg.get("pg_id"),
+                "server_id": row["id"],
+                "src_clusters": clusters("src_clusters"),
+                "des_clusters": clusters("des_clusters"),
+                "protection_id": (row.get("protection") or {}).get("id"),
+                "recovery_storage_id": row.get("recovery_storage_id"),
+            })
+    if missing:
+        raise LookupError(f"dr-server-list에 없는 VM: {', '.join(missing)}")
+    bad = [s["server_id"] for s in servers
+           if not (s["protection_id"] and s["recovery_storage_id"] and s["src_clusters"] and s["des_clusters"])]
+    if bad:
+        raise LookupError(f"드릴 본문 값이 비어 있는 VM: {', '.join(bad)}")
+    return {"drill": {"rps": [{"rp_id": rp["id"], "servers": servers}],
+                      "need_sync": int(need_sync), "enable_resource_reserve": int(resource_reserve)}}

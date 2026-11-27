@@ -13,7 +13,7 @@ export COPYFILE_DISABLE=1            # macOS: ._ 메타파일이 tar에 섞이�
 if tar --version 2>/dev/null | grep -q GNU; then
   TAR_OWNER=(--owner=0 --group=0)
 else
-  TAR_OWNER=(--uid 0 --gid 0 --uname root --gname root)
+  TAR_OWNER=(--uid 0 --gid 0 --uname root --gname root --no-xattrs --no-mac-metadata)
 fi
 if command -v sha256sum >/dev/null; then SHA=(sha256sum); else SHA=(shasum -a 256); fi
 

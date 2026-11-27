@@ -19,7 +19,7 @@ import os
 import socket
 import sys
 
-from adr_common import check_rp, find_rp, log, rp_list, rp_status, wait_rp
+from adr_common import build_drill_body, check_rp, find_rp, log, rp_list, rp_status, wait_rp
 from scp_client import ConsoleClient, SCPClient, SCPError, call_endpoint, env, load_env
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -65,8 +65,18 @@ def run_step(clients, eps, name, rp):
     st = rp.get("status") or {}
     variables = {"rp_id": rp["id"], "rp_name": rp["name"], "project_id": rp.get("project_id", ""),
                  "drlog_id": st.get("drlog_id") or "", "drlog_root_id": st.get("drlog_root_id") or ""}
+    if ep.get("body_builder") == "drill":
+        ep = dict(ep, body=build_drill_body(clients["console"], rp, env("DRILL_NEED_SYNC", "0"),
+                                            env("DRILL_RESOURCE_RESERVE", "0")))
     log(f"{name}: {ep['method']} {ep['path']}")
-    resp = call_endpoint(client, ep, name, **variables)
+    try:
+        resp = call_endpoint(client, ep, name, **variables)
+    except SCPError as e:
+        if "HTTP 405" not in str(e):
+            raise
+        alt = "PUT" if ep["method"] == "POST" else "POST"
+        log(f"  HTTP 405 (메서드 불일치, 실행 안 됨) -> {alt}로 재시도")
+        resp = call_endpoint(client, dict(ep, method=alt), name, **variables)
     log(f"  응답: {json.dumps(resp, ensure_ascii=False)[:300]}")
     w = ep.get("wait")
     if w:
@@ -95,6 +105,7 @@ def main():
     ap.add_argument("--confirm", help="failover/failback 시 복구 계획 이름을 그대로 입력")
     ap.add_argument("--keep", action="store_true", help="drill 후 정리하지 않음")
     ap.add_argument("--skip-precheck", action="store_true")
+    ap.add_argument("--trust", default="", help="랩 검증용: 쉼표로 지정한 단계를 이번 실행에서만 verified로 취급")
     a = ap.parse_args()
     load_env()
 
@@ -107,10 +118,14 @@ def main():
         return 1
 
     eps = load_endpoints()
+    for t in filter(None, (x.strip() for x in a.trust.split(","))):
+        if t in eps:
+            eps[t]["verified"] = True
+            log(f"[주의] '{t}' 단계를 이번 실행에서만 검증된 것으로 취급합니다 (--trust)")
     rp = find_rp(cc, a.plan)
     first = PLAN[a.action][0]
     need = (eps.get(first) or {}).get("require_state")
-    if not a.skip_precheck and not check_rp(rp, need):
+    if not a.skip_precheck and not check_rp(rp, need) and a.execute:
         log("사전 점검 FAIL - 중단합니다 (--skip-precheck로 무시 가능)")
         return 1
 
@@ -129,6 +144,9 @@ def main():
             tag = " (endpoints.json에 없음)" if not ep else ("" if ep.get("verified") else " (verified:false)")
             wait = f" -> 상태 {ep['wait']['until_state']} 대기" if ep and ep.get("wait") else ""
             log(f"  - {s}: {ep['method'] + ' ' + ep['path'] if ep else ''}{wait}{tag}")
+            if ep and ep.get("body_builder") == "drill":
+                body = build_drill_body(cc, rp, env("DRILL_NEED_SYNC", "0"), env("DRILL_RESOURCE_RESERVE", "0"))
+                log("    자동 생성 본문: " + json.dumps(body, ensure_ascii=False))
         log("실제 실행: --execute")
         return 0
 
