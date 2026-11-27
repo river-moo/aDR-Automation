@@ -262,6 +262,7 @@ def console_login_probe():
             print(f"[FAIL] 로그인 방식 {mode}: {e}")
             continue
         print(f"[OK]   콘솔 로그인 성공 (방식 {mode}, 사용자 {d.get('username')}, 접속 IP {d.get('client_ip')})")
+        print(f"[OK]   세션 사용 방식: {getattr(c, 'login_variant', '?')}, 서버 쿠키: {c._server_cookie_names()}")
         try:
             c.request("GET", "/admin/view/dr-rp-list", params={"start": 0, "limit": 1})
             print("[OK]   조회(GET) 동작")

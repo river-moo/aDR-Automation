@@ -382,8 +382,55 @@ class ConsoleClient:
         d = j.get("data") or {}
         if not (j.get("success") == 1 and d.get("client_token") and d.get("CSRFPreventionToken")):
             raise SCPError(f"[console] /ticket 로그인 실패({mode}): {j.get('message') or j.get('dbgmsg') or str(j)[:200]}")
-        self.set_token(d["client_token"], d["CSRFPreventionToken"], keep_cookies=True)
+        self._activate_session(d["client_token"], d["CSRFPreventionToken"])
         return d
+
+    def _looks_ok(self):
+        """조회 한 번으로 세션이 살아 있는지 확인 (로그인 화면 HTML이면 실패)."""
+        try:
+            r = self.s.get(self.base + "/admin/view/dr-rp-list", params={"start": 0, "limit": 1}, timeout=self.timeout)
+            return r.headers.get("Content-Type", "").startswith("application/json") and "success" in r.text[:2000]
+        except requests.RequestException:
+            return False
+
+    def _server_cookie_names(self):
+        return sorted({c.name for c in self.s.cookies if c.domain})
+
+    def _activate_session(self, token, csrf):
+        """로그인 직후 세션을 쓰는 방법을 순서대로 시도하고, 통한 방법을 self.login_variant에 남긴다.
+          A) 서버가 준 쿠키만 유지 + CSRF/헤더만 추가 (중복 쿠키 없음)
+          B) A + 콘솔 첫 화면 GET / (브라우저처럼 세션 활성화)
+          C) 스크립트가 쿠키를 직접 덮어씀 (예전 방식)"""
+        jar = self.s.cookies
+        # 도메인 없이 넣었던 스크립트 쿠키 제거 -> 서버가 준 쿠키만 남김
+        for c in list(jar):
+            if not c.domain:
+                jar.clear(c.domain, c.path, c.name)
+        host = urllib.parse.urlparse(self.base).hostname
+        self.token, self.csrf = token, csrf
+        self.s.headers.update({"Client_token": token, "Csrfpreventiontoken": csrf, "Sid": "",
+                               "X-Requested-With": "XMLHttpRequest", "Referer": self.base + "/",
+                               "Content-Type": "application/json; charset=utf-8"})
+        for name, val in (("CSRFPreventionToken", csrf), ("language", "en_US")):
+            jar.set(name, val, domain=host, path="/")
+        if not any(c.name == "aCMPAuthToken" for c in jar):
+            jar.set("aCMPAuthToken", token, domain=host, path="/")
+        if self._looks_ok():
+            self.login_variant = "A(서버 쿠키 유지)"
+            return
+        try:
+            self.s.get(self.base + "/", timeout=self.timeout)
+        except requests.RequestException:
+            pass
+        if self._looks_ok():
+            self.login_variant = "B(첫 화면 GET 후)"
+            return
+        self.set_token(token, csrf, keep_cookies=False)
+        if self._looks_ok():
+            self.login_variant = "C(쿠키 직접 설정)"
+            return
+        raise SCPError("[console] 로그인은 성공했지만 세션 사용 실패 (A/B/C 모두 로그인 화면으로 이동). "
+                       f"서버 쿠키: {self._server_cookie_names()}")
 
     @classmethod
     def from_env_with(cls, src):
