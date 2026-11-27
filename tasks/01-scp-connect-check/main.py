@@ -7,12 +7,14 @@
 ./run.sh --get /admin/view/running-ulog-list          # 콘솔 조회 API 응답 보기 (GET만)
 ./run.sh --get /admin/view/dr-rp-list -q start=0 -q limit=50
 ./run.sh --csrf-probe   # 콘솔 변경 요청용 CSRF 토큰을 어디서 받는지 진단 (상태 변경 없음)
-./run.sh --console-login  # 콘솔 로그인(/ticket) + 쓰기 권한(CSRF) 점검. 암호화 방식 최대 2가지 시도
+./run.sh --console-login  # 콘솔 로그인(/ticket) + 쓰기 권한(CSRF) 점검
+./run.sh --write-probe    # OpenAPI 토큰을 여러 방식으로 보내 쓰기 요청이 통하는지 점검 (로그인 추가 시도 없음)
 """
 import argparse
 import json
 import re
 import socket
+import uuid
 import sys
 import urllib.parse
 
@@ -40,6 +42,7 @@ def main():
     ap.add_argument("-o", "--out", help="--get 응답을 파일로 저장")
     ap.add_argument("--csrf-probe", action="store_true", help="콘솔 CSRF 토큰 발급 위치 진단")
     ap.add_argument("--console-login", action="store_true", help="콘솔 /ticket 로그인 + 쓰기(CSRF) 점검")
+    ap.add_argument("--write-probe", action="store_true", help="OpenAPI 토큰 전달 방식별 쓰기 요청 점검")
     a = ap.parse_args()
     load_env()
     if a.get:
@@ -48,6 +51,8 @@ def main():
         sys.exit(csrf_probe())
     if a.console_login:
         sys.exit(console_login_probe())
+    if a.write_probe:
+        sys.exit(write_probe())
     if a.console:
         sys.exit(console_probe(a.raw))
 
@@ -181,6 +186,62 @@ def csrf_probe():
          s.post(base + "/admin/tokens/extend-expiration", headers=dict(common, **{"Content-Type": "application/json"}), data="{}", timeout=30))
     print("\n세션 쿠키 이름 전체:", sorted(set(s.cookies.keys())))
     return 0
+
+
+def write_probe():
+    """OpenAPI 토큰(1회 로그인)과 AK/SK로 쓰기 요청이 CSRF 없이 통하는 방식을 찾는다.
+    시험 요청은 세션 연장(POST /admin/tokens/extend-expiration)이라 상태를 바꾸지 않는다."""
+    import requests
+    host = env("SCP_HOST", required=True)
+    pu = urllib.parse.urlparse(host if host.startswith("http") else "https://" + host)
+    console = f"{pu.scheme}://{pu.hostname}:{env('CONSOLE_PORT', '4430')}"
+    api = f"{pu.scheme}://{pu.netloc}"
+    verify = env("SCP_VERIFY_TLS", "0") == "1"
+    path = "/admin/tokens/extend-expiration"
+
+    tok = None
+    if env("SCP_USER") and env("SCP_PASS"):
+        c = SCPClient(host, auth="token", username=env("SCP_USER"), password=env("SCP_PASS"), verify=verify)
+        c.login()
+        tok = c.s.headers["Authorization"].split(" ", 1)[1]
+        print("[OK]   OpenAPI 토큰 로그인 (1회)")
+
+    trials = []
+    if tok:
+        base_h = {"Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest"}
+        trials += [
+            ("A. 콘솔 4430 + X-Auth-Token 헤더 (쿠키 없음)", console, dict(base_h, **{"X-Auth-Token": tok}), None),
+            ("B. 콘솔 4430 + Authorization: Token (쿠키 없음)", console, dict(base_h, Authorization=f"Token {tok}"), None),
+            ("C. 콘솔 4430 + Client_token 헤더만 (쿠키 없음)", console, dict(base_h, Client_token=tok), None),
+            ("D. OpenAPI 443 + Authorization: Token", api, dict(base_h, Authorization=f"Token {tok}"), None),
+            ("E. OpenAPI 443 + X-Auth-Token", api, dict(base_h, **{"X-Auth-Token": tok}), None),
+        ]
+    if env("SCP_AK") and env("SCP_SK"):
+        from scp_client import EC2Auth
+        trials.append(("F. OpenAPI 443 + AK/SK 서명", api,
+                       {"Content-Type": "application/json", "Cookie": f"aCMPAuthToken={uuid.uuid4().hex}"},
+                       EC2Auth(env("SCP_AK"), env("SCP_SK"), env("SCP_EC2_REGION", "cn-south-1"),
+                               env("SCP_EC2_SERVICE", "sdk-api"), env("SCP_EC2_SIGN_QUERY", "0") == "1")))
+
+    ok_list = []
+    for label, base, headers, auth in trials:
+        s = requests.Session()
+        s.verify = verify
+        try:
+            r = s.post(base + path, headers=headers, data="{}", auth=auth, timeout=30)
+            try:
+                j = r.json()
+                msg = j.get("message") or j.get("dbgmsg") or ""
+                good = r.status_code < 400 and j.get("success") in (1, True) or (j.get("code") == 0 and r.status_code < 400)
+            except ValueError:
+                j, msg, good = None, r.text[:80].replace("\n", " "), False
+            print(f"[{'OK' if good else '--'}]   {label}: HTTP {r.status_code} {msg[:80]}")
+            if good:
+                ok_list.append(label)
+        except requests.RequestException as e:
+            print(f"[--]   {label}: 접속 실패 {e}")
+    print("\n결과:", ("쓰기 가능한 방식 -> " + " / ".join(ok_list)) if ok_list else "모든 방식이 거부됨")
+    return 0 if ok_list else 1
 
 
 def console_login_probe():
