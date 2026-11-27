@@ -10,6 +10,7 @@ SCP 6.11.3 실측: 드릴·전환은 '복구 계획(Recovery Plan)' 단위로, �
 ./run.sh drill    -p aDR-Auto-SCP-Test --execute     # 점검 -> 드릴 -> 완료 대기 -> 검증 -> 정리
 ./run.sh drill    -p aDR-Auto-SCP-Test --execute --keep   # 드릴 VM 남겨두기
 ./run.sh cleanup  -p aDR-Auto-SCP-Test --execute     # 드릴 정리(테스트 종료)만
+./run.sh clear    -p aDR-Auto-SCP-Test --execute     # 끝난 계획 상태를 Ready로 정리만
 ./run.sh failover -p aDR-Auto-SCP-Test --execute --confirm aDR-Auto-SCP-Test
 ./run.sh failback -p aDR-Auto-SCP-Test --execute --confirm aDR-Auto-SCP-Test
 """
@@ -26,6 +27,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 PLAN = {
     "drill": ["drill_start", "verify", "drill_cleanup", "clear_state"],
     "cleanup": ["drill_cleanup", "clear_state"],
+    "clear": ["clear_state"],
     "failover": ["failover", "verify"],
     "failback": ["failback", "verify"],
 }
@@ -62,6 +64,7 @@ def run_step(clients, eps, name, rp):
     ep = eps[name]
     client = clients["console"] if ep.get("api", "console") == "console" else clients["openapi"]()
     before = (rp.get("status") or {}).get("ulog_id")
+    before_pair = ((rp.get("status") or {}).get("action"), (rp.get("status") or {}).get("state"))
     st = rp.get("status") or {}
     variables = {"rp_id": rp["id"], "rp_name": rp["name"], "project_id": rp.get("project_id", ""),
                  "drlog_id": st.get("drlog_id") or "", "drlog_root_id": st.get("drlog_root_id") or ""}
@@ -81,7 +84,8 @@ def run_step(clients, eps, name, rp):
     w = ep.get("wait")
     if w:
         wait_rp(clients["console"], rp["id"], w["until_state"], action=w.get("action"), before_ulog=before,
-                timeout=int(env("TASK_TIMEOUT", "3600")), interval=int(env("TASK_POLL_INTERVAL", "10")))
+                timeout=int(env("TASK_TIMEOUT", "3600")), interval=int(env("TASK_POLL_INTERVAL", "10")),
+                before=before_pair)
     rp.update(find_rp(clients["console"], rp["id"]))  # 다음 단계를 위해 최신 상태로
     return True
 

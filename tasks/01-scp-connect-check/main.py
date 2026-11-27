@@ -266,7 +266,12 @@ def console_login_probe():
         try:
             c.request("GET", "/admin/view/dr-rp-list", params={"start": 0, "limit": 1})
             print("[OK]   조회(GET) 동작")
-            c.request("POST", "/admin/tokens/extend-expiration", body={})
+            try:
+                c.request("POST", "/admin/tokens/extend-expiration", body={})
+            except SCPError as e:
+                if "403" in str(e) or "expired" in str(e).lower():
+                    raise
+                # 404 등은 경로 문제일 뿐 CSRF는 통과한 것 (CSRF 거부는 errcode 403 / Page has expired)
             print("[OK]   쓰기 요청 CSRF 통과 (세션 연장 POST, 상태 변경 없음)")
         except Exception as e:  # noqa: BLE001
             print(f"[FAIL] 로그인 후 요청 실패: {e}")

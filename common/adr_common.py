@@ -104,13 +104,16 @@ def check_rp(rp, need_states=None, out=log):
     return ok
 
 
-def wait_rp(cc, rp_id, until_states, action=None, before_ulog=None, timeout=3600, interval=10, out=log):
+def wait_rp(cc, rp_id, until_states, action=None, before_ulog=None, timeout=3600, interval=10, out=log,
+            before=None):
     """복구 계획 상태가 until_states 중 하나가 될 때까지 대기. 실패 작업이 생기면 예외.
     before_ulog: 실행 전 status.ulog_id. 이전 동작의 완료 상태를 새 동작 완료로 착각하지 않도록
     ulog_id가 바뀐 뒤의 상태만 인정한다."""
     end = time.time() + timeout
     seen = None
     started = time.time()
+    first = None          # 실행 직후 처음 본 (동작, 상태)
+    moved = False         # 처음 상태에서 한 번이라도 바뀌었는지
     while time.time() < end:
         rp = find_rp(cc, rp_id)
         act, state, prog = rp_status(rp)
@@ -121,7 +124,16 @@ def wait_rp(cc, rp_id, until_states, action=None, before_ulog=None, timeout=3600
             seen = cur
         if prog.get("failed"):
             raise RuntimeError(f"복구 계획 작업 실패 {prog.get('failed')}건 - 콘솔 Tasks에서 원인 확인")
-        new_run = before_ulog is None or (rp.get("status") or {}).get("ulog_id") != before_ulog
+        if first is None:
+            first = (act, state)
+        elif (act, state) != first:
+            moved = True
+        # 6.11.3 실측: 테스트 종료(drill_clean) 중에는 계획의 ulog_id가 바뀌지 않음.
+        # 그래서 '작업 ID 변경' 또는 '실행 후 상태 변화가 있었음' 중 하나면 새 실행의 결과로 인정
+        new_run = (before_ulog is None
+                   or (rp.get("status") or {}).get("ulog_id") != before_ulog   # 작업 ID가 바뀜
+                   or (before is not None and (act, state) != before)          # 실행 전과 (동작, 상태)가 다름
+                   or moved)                                                   # 실행 후 상태가 한 번이라도 바뀜
         if new_run and state in until_states and (action is None or act == action):
             return rp
         time.sleep(interval)
