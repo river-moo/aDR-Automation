@@ -58,3 +58,71 @@ def check_policy(c, policy, out=log):
     ok = not any(c_["level"] == "FAIL" for c_ in res["checks"])
     res["result"] = "PASS" if ok else "FAIL"
     return ok, res
+
+
+# ================================================================ 복구 계획 (콘솔 API)
+# 6.11.3 실측: GET /admin/view/dr-rp-list
+#   status.action : drill / ... (마지막 동작), status.state : ready(대기) / finish(동작 완료) / ...
+#   task_progress : {total, succeed, failed, canceled}
+RP_LIST = "/admin/view/dr-rp-list"
+
+
+def rp_list(cc):
+    return cc.request("GET", RP_LIST, params={"start": 0, "limit": 200, "sort": "state", "direct": "ASC"}).get("data", [])
+
+
+def find_rp(cc, key):
+    """복구 계획 이름 또는 ID로 찾기."""
+    for rp in rp_list(cc):
+        if key in (rp.get("id"), rp.get("name")):
+            return rp
+    raise LookupError(f"복구 계획을 찾을 수 없음: {key}")
+
+
+def rp_status(rp):
+    st = rp.get("status") or {}
+    return st.get("action"), st.get("state"), rp.get("task_progress") or {}
+
+
+def check_rp(rp, need_states=None, out=log):
+    """복구 계획 점검. need_states가 있으면 현재 state가 그 안에 있어야 PASS."""
+    ok = True
+    action, state, prog = rp_status(rp)
+    out(f"복구 계획: {rp['name']} id={rp['id']} 상태={state} (마지막 동작 {action}), VM {rp.get('server_num')}대")
+    for side in ("src_sites", "des_sites"):
+        for s in rp.get(side) or []:
+            lvl = "OK" if s.get("status") == "normal" else "FAIL"
+            ok &= lvl == "OK"
+            out(f"  [{lvl}] {'보호' if side == 'src_sites' else 'DR'} 사이트 {s.get('az_name')} "
+                f"({s.get('version')}) 상태 {s.get('status')}")
+    if not rp.get("server_num"):
+        out("  [FAIL] 계획에 VM이 없음"); ok = False
+    if need_states and state not in need_states:
+        out(f"  [FAIL] 현재 상태 '{state}'에서는 실행할 수 없음 (필요: {', '.join(need_states)})"); ok = False
+    if rp.get("last_drill_time"):
+        out(f"  [INFO] 마지막 드릴 {rp['last_drill_time']}")
+    return ok
+
+
+def wait_rp(cc, rp_id, until_states, action=None, before_ulog=None, timeout=3600, interval=10, out=log):
+    """복구 계획 상태가 until_states 중 하나가 될 때까지 대기. 실패 작업이 생기면 예외.
+    before_ulog: 실행 전 status.ulog_id. 이전 동작의 완료 상태를 새 동작 완료로 착각하지 않도록
+    ulog_id가 바뀐 뒤의 상태만 인정한다."""
+    end = time.time() + timeout
+    seen = None
+    started = time.time()
+    while time.time() < end:
+        rp = find_rp(cc, rp_id)
+        act, state, prog = rp_status(rp)
+        cur = (act, state, prog.get("succeed"), prog.get("failed"), prog.get("total"))
+        if cur != seen:
+            out(f"  상태 {state} (동작 {act}) 진행 {prog.get('succeed', 0)}/{prog.get('total', 0)} "
+                f"실패 {prog.get('failed', 0)}  [{int(time.time() - started)}s]")
+            seen = cur
+        if prog.get("failed"):
+            raise RuntimeError(f"복구 계획 작업 실패 {prog.get('failed')}건 - 콘솔 Tasks에서 원인 확인")
+        new_run = before_ulog is None or (rp.get("status") or {}).get("ulog_id") != before_ulog
+        if new_run and state in until_states and (action is None or act == action):
+            return rp
+        time.sleep(interval)
+    raise TimeoutError(f"대기 시간 초과 ({timeout}s): 마지막 상태 {seen}")

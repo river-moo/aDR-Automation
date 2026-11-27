@@ -1,41 +1,47 @@
 {
   "_comment": [
-    "Task 02로 캡처한 SCP 콘솔 내부 API를 여기에 채운다 (공식 OpenAPI에는 없음).",
-    "path/body/query 안의 ${protection_id}, ${policy_name} 은 실행 시 자동 치환된다.",
-    "랩에서 단독 호출로 동작을 확인하기 전까지 verified 는 false 로 둔다 (false면 실행 거부).",
-    "async: true 면 응답의 task_id_field 값으로 /janus/20180725/tasks 완료를 기다린다."
+    "SCP 6.11.3: 드릴·전환 실행 API는 콘솔(https://SCP:4430/admin/...)에 있고 복구 계획 단위로 동작한다.",
+    "Task 02 캡처(또는 Copy as cURL)로 path/method/body를 채운다.",
+    "치환 변수: ${rp_id} 복구 계획 ID, ${rp_name} 이름, ${project_id} 프로젝트 ID",
+    "api: console(4430, 기본) | openapi(443 /janus)",
+    "require_state: 실행 전 복구 계획 상태 조건 (dr-rp-list status.state)",
+    "wait: 실행 후 dr-rp-list 상태가 until_state가 될 때까지 대기 (action이 있으면 status.action도 일치해야 함)",
+    "verified: 랩에서 단독 호출로 동작 확인 후에만 true (false면 실행 거부)"
   ],
   "endpoints": {
     "drill_start": {
+      "api": "console",
       "method": "POST",
-      "path": "/janus/XXXXXXXX/protections/${protection_id}/TODO",
+      "path": "/admin/TODO/${rp_id}",
       "body": {},
-      "async": true,
-      "task_id_field": "task_id",
+      "require_state": ["ready"],
+      "wait": {"until_state": ["finish"], "action": "drill"},
       "verified": false
     },
     "drill_cleanup": {
+      "api": "console",
       "method": "POST",
-      "path": "/janus/XXXXXXXX/protections/${protection_id}/TODO",
+      "path": "/admin/TODO/${rp_id}",
       "body": {},
-      "async": true,
-      "task_id_field": "task_id",
+      "require_state": ["finish"],
+      "wait": {"until_state": ["ready"]},
       "verified": false
     },
     "failover": {
+      "api": "console",
       "method": "POST",
-      "path": "/janus/XXXXXXXX/protections/${protection_id}/TODO",
+      "path": "/admin/TODO/${rp_id}",
       "body": {},
-      "async": true,
-      "task_id_field": "task_id",
+      "require_state": ["ready"],
+      "wait": {"until_state": ["finish"]},
       "verified": false
     },
     "failback": {
+      "api": "console",
       "method": "POST",
-      "path": "/janus/XXXXXXXX/protections/${protection_id}/TODO",
+      "path": "/admin/TODO/${rp_id}",
       "body": {},
-      "async": true,
-      "task_id_field": "task_id",
+      "wait": {"until_state": ["finish", "ready"]},
       "verified": false
     }
   }

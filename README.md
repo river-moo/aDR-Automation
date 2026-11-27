@@ -11,7 +11,7 @@ python 의존성은 패키지 안에 wheel로 들어 있어서 **pip이나 인�
 | 01 | [scp-connect-check](tasks/01-scp-connect-check) | 접속·인증·버전·리소스 풀·DR 정책 API 점검 | 없음 | AK/SK |
 | 02 | [har-capture](tasks/02-har-capture) | 콘솔 HAR에서 내부 API 추출 → Task 04용 후보 생성 | 없음 | HAR 파일 |
 | 03 | [adr-precheck](tasks/03-adr-precheck) | DR 정책·보호 VM 점검 리포트 (cron 가능) | 없음 | AK/SK |
-| 04 | [adr-drill](tasks/04-adr-drill) | 드릴 / 정리 / Failover / Failback 실행 | **있음** | AK/SK + 캡처한 endpoints.json |
+| 04 | [adr-drill](tasks/04-adr-drill) | 복구 계획 드릴 / 정리 / Failover / Failback | **있음** | 콘솔 계정 + 캡처한 endpoints.json |
 
 권장 순서: **01 → 03 → 02(랩에서 캡처) → 04(dry-run → 랩 실행)**
 
@@ -22,7 +22,8 @@ python 의존성은 패키지 안에 wheel로 들어 있어서 **pip이나 인�
 | DR 정책 목록·구성 | `GET /janus/20240725/protections` (6.11.1+) |
 | 보호 VM | `GET /janus/20220725/servers?in_protection=1&protection_id=` |
 | 작업 진행률 | `GET /janus/20180725/tasks/{task_id}` |
-| 드릴 시작·정리, Failover, Failback | **없음** → Task 02로 캡처해서 Task 04에 등록 |
+| 드릴 시작·정리, Failover, Failback | **없음** → 콘솔 API(4430 `/admin/...`)에 있음. Task 02로 캡처해서 Task 04에 등록 |
+| 복구 계획 상태 (콘솔) | `GET :4430/admin/view/dr-rp-list` (OpenAPI 토큰으로 호출 가능, 실측) |
 
 ## 빌드 · 배포
 

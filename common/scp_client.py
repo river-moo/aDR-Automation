@@ -240,14 +240,19 @@ class SCPClient:
         ep = self.internal.get(name)
         if not ep:
             raise SCPError(f"endpoints.json에 '{name}' 항목이 없습니다")
-        if not ep.get("verified"):
-            raise SCPError(f"'{name}'은 아직 검증되지 않은 엔드포인트입니다 (verified: true 필요)")
-        sub = lambda s: string.Template(s).substitute(vars_)  # noqa: E731
-        body = ep.get("body")
-        if body is not None:
-            body = json.loads(sub(json.dumps(body)))
-        params = {k: sub(str(v)) for k, v in (ep.get("query") or {}).items()} or None
-        return self.request(ep["method"], sub(ep["path"]), params=params, body=body)
+        return call_endpoint(self, ep, name, **vars_)
+
+
+def call_endpoint(client, ep, name, **vars_):
+    """endpoints.json 항목 하나를 호출. path/body/query의 ${변수}를 치환한다."""
+    if not ep.get("verified"):
+        raise SCPError(f"'{name}'은 아직 검증되지 않은 엔드포인트입니다 (verified: true 필요)")
+    sub = lambda s: string.Template(s).substitute(vars_)  # noqa: E731
+    body = ep.get("body")
+    if body is not None:
+        body = json.loads(sub(json.dumps(body)))
+    params = {k: sub(str(v)) for k, v in (ep.get("query") or {}).items()} or None
+    return client.request(ep["method"], sub(ep["path"]), params=params, body=body)
 
 
 # ---------------------------------------------------------------- 콘솔(4430) 세션
@@ -318,8 +323,9 @@ class ConsoleClient:
         except ValueError:
             raise SCPError(f"[console] {method} {path} -> HTTP {r.status_code}, JSON 아님"
                            f" (로그인 페이지로 리다이렉트됐을 수 있음): {r.text[:200]}")
-        if r.status_code >= 400:
-            raise SCPError(f"[console] {method} {path} -> HTTP {r.status_code}: {str(data)[:300]}")
+        if r.status_code >= 400 or (isinstance(data, dict) and data.get("success") in (0, False)):
+            raise SCPError(f"[console] {method} {path} -> HTTP {r.status_code}: "
+                           f"{data.get('dbgmsg') or data.get('msg') or str(data)[:300]}")
         return data
 
     def dr_protection_list(self):
