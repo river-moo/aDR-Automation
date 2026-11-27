@@ -69,7 +69,7 @@ class EC2Auth(requests.auth.AuthBase):
 
     SIGNED_HEADERS = "cookie;x-amz-date"
 
-    def __init__(self, ak, sk, region="cn-south-1", service="sdk-api", sign_query=True):
+    def __init__(self, ak, sk, region="cn-south-1", service="sdk-api", sign_query=False):
         self.ak, self.sk = ak, sk.encode()
         self.region, self.service = region, service
         self.sign_query = sign_query
@@ -105,7 +105,7 @@ class EC2Auth(requests.auth.AuthBase):
 # ---------------------------------------------------------------- 클라이언트
 class SCPClient:
     def __init__(self, host, auth="auto", ak=None, sk=None, username=None, password=None,
-                 region="cn-south-1", service="sdk-api", sign_query=True, verify=False, timeout=30):
+                 region="cn-south-1", service="sdk-api", sign_query=False, verify=False, timeout=30):
         self.base = host if host.startswith("http") else f"https://{host}"
         self.timeout = timeout
         self.s = requests.Session()
@@ -129,7 +129,7 @@ class SCPClient:
                    ak=env("SCP_AK"), sk=env("SCP_SK"),
                    username=env("SCP_USER"), password=env("SCP_PASS"),
                    region=env("SCP_EC2_REGION", "cn-south-1"), service=env("SCP_EC2_SERVICE", "sdk-api"),
-                   sign_query=env("SCP_EC2_SIGN_QUERY", "1") == "1",
+                   sign_query=env("SCP_EC2_SIGN_QUERY", "0") == "1",
                    verify=env("SCP_VERIFY_TLS", "0") == "1", timeout=int(env("SCP_TIMEOUT", "30")))
 
     # -------- 토큰 인증

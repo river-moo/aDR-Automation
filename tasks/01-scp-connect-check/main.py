@@ -53,13 +53,14 @@ def main():
     ver = step("SCP 버전 조회 (/janus/20180725/system/version)", c.version, a.raw)
     azs = step("리소스 풀 조회 (/janus/20180725/azs)", c.list_azs, a.raw)
 
-    # EC2 서명에서 쿼리스트링 포함 여부 자동 판별
+    # EC2 서명에서 쿼리스트링 포함 여부 자동 판별 (6.11.3 실측 기본값은 0)
     if c.mode == "ec2" and azs is None and ver is not None:
-        print("       쿼리스트링을 서명에서 빼고 다시 시도합니다 (SCP_EC2_SIGN_QUERY=0)")
-        c.s.auth.sign_query = False
+        flip = not c.s.auth.sign_query
+        print(f"       쿼리스트링 서명 방식을 바꿔 다시 시도합니다 (SCP_EC2_SIGN_QUERY={int(flip)})")
+        c.s.auth.sign_query = flip
         azs = step("리소스 풀 조회 (재시도)", c.list_azs, a.raw)
         if azs is not None:
-            print("       -> .env에 SCP_EC2_SIGN_QUERY=0 으로 설정하세요")
+            print(f"       -> .env에 SCP_EC2_SIGN_QUERY={int(flip)} 으로 설정하세요")
 
     if azs:
         for z in azs:

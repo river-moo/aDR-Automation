@@ -20,7 +20,7 @@ vi .env               # 아래 "수정할 값" 입력
 | `SCP_AK`, `SCP_SK` | **항상** (EC2 인증). SCP 기술지원에서 발급 | |
 | `SCP_AUTH` | AK/SK 없이 계정으로 쓸 때 `token` | `auto` |
 | `SCP_USER`, `SCP_PASS` | `SCP_AUTH=token`일 때만 | `admin` |
-| `SCP_EC2_SIGN_QUERY` | 점검 결과가 `0`으로 바꾸라고 할 때 | `1` |
+| `SCP_EC2_SIGN_QUERY` | 점검 결과가 바꾸라고 할 때만 (6.11.3 실측 `0`) | `0` |
 | `SCP_EC2_REGION`, `SCP_EC2_SERVICE` | 인증만 계속 실패할 때 본사에 값 확인 | `cn-south-1`, `sdk-api` |
 | `SCP_VERIFY_TLS` | SCP에 정식 인증서가 있을 때 `1` | `0` |
 
@@ -28,5 +28,5 @@ vi .env               # 아래 "수정할 값" 입력
 
 - **TCP 실패**: 방화벽에서 이 서버 → SCP 443 허용 여부, `SCP_HOST` 확인
 - **401/403**: AK/SK 오타, 또는 **시간 차이**. EC2 서명은 시각에 민감하니 `chronyc tracking` / `timedatectl`로 NTP를 맞추세요
-- **버전은 OK인데 리소스 풀만 실패**: 쿼리 서명 문제. 스크립트가 자동 재시도하고 `SCP_EC2_SIGN_QUERY=0` 여부를 알려줍니다
+- **버전은 OK인데 리소스 풀만 실패**: 쿼리 서명 문제. 스크립트가 반대 방식으로 자동 재시도하고 `SCP_EC2_SIGN_QUERY` 값을 알려줍니다
 - **DR 정책 조회 실패**: SCP 6.11.1 미만이거나 aDR 라이선스·권한이 없는 경우

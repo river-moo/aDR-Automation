@@ -25,7 +25,7 @@ vi .env
 | 값 | 언제 바꾸나 | 예시 |
 |---|---|---|
 | `SCP_HOST`, `SCP_AK`, `SCP_SK` | **항상** (Task 01과 동일) | `192.168.0.210` |
-| `SCP_EC2_SIGN_QUERY` | Task 01이 `0`으로 바꾸라고 한 경우 | `1` |
+| `SCP_EC2_SIGN_QUERY` | Task 01이 바꾸라고 한 경우만 | `0` |
 | `REPORT_DIR` | 리포트를 다른 곳(공유 폴더 등)에 둘 때 | `/var/lib/adr/reports` |
 
 Task 01에서 이미 맞춘 `.env`가 있으면 그대로 복사해 쓰면 됩니다: `cp ../01-scp-connect-check/.env .` 후 `REPORT_DIR`만 추가.
