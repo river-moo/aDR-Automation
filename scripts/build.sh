@@ -8,6 +8,15 @@ DIST="$ROOT/dist"
 VERSION="$(cat "$ROOT/VERSION")"
 mkdir -p "$DIST"
 
+# macOS(bsdtar) / Linux(GNU tar) 모두 지원
+export COPYFILE_DISABLE=1            # macOS: ._ 메타파일이 tar에 섞이지 않게
+if tar --version 2>/dev/null | grep -q GNU; then
+  TAR_OWNER=(--owner=0 --group=0)
+else
+  TAR_OWNER=(--uid 0 --gid 0 --uname root --gname root)
+fi
+if command -v sha256sum >/dev/null; then SHA=(sha256sum); else SHA=(shasum -a 256); fi
+
 build_one() {
   local src="$1" name; name="$(basename "$src")"
   ( . "$src/task.conf"
@@ -30,8 +39,8 @@ build_one() {
     echo "$VERSION" > "$stage/VERSION"
     chmod +x "$stage/install.sh" "$stage/run.sh" "$stage/main.py"
     ( cd "$DIST/.stage"
-      tar --owner=0 --group=0 -czf "$DIST/$name.tar.gz" "$name"
-      rm -f "$DIST/$name.zip"; zip -qr "$DIST/$name.zip" "$name" )
+      tar "${TAR_OWNER[@]}" -czf "$DIST/$name.tar.gz" "$name"
+      rm -f "$DIST/$name.zip"; zip -qrX "$DIST/$name.zip" "$name" -x "*.DS_Store" )
     echo "  $name.tar.gz / .zip"
   )
 }
@@ -46,5 +55,5 @@ for t in "$ROOT"/tasks/*/; do
   build_one "$t"
 done
 rm -rf "$DIST/.stage"
-( cd "$DIST" && sha256sum *.tar.gz *.zip > SHA256SUMS )
+( cd "$DIST" && "${SHA[@]}" *.tar.gz *.zip > SHA256SUMS )
 echo "-> $DIST"
