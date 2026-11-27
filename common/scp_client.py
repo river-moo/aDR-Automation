@@ -316,6 +316,7 @@ class ConsoleClient:
                                data=json.dumps(body) if body is not None else None, timeout=self.timeout)
         except requests.RequestException as e:
             raise SCPError(f"[console] {method} {path} 접속 실패: {e}")
+        self._sync_csrf(r)
         if r.status_code in (401, 403):
             raise SCPError(f"[console] {method} {path} -> HTTP {r.status_code} (토큰/CSRF 거부): {r.text[:200]}")
         try:
@@ -327,6 +328,19 @@ class ConsoleClient:
             raise SCPError(f"[console] {method} {path} -> HTTP {r.status_code}: "
                            f"{data.get('dbgmsg') or data.get('msg') or str(data)[:300]}")
         return data
+
+    CSRF_NAMES = ("CSRFPreventionToken", "csrfpreventiontoken", "csrf_token", "csrfToken", "CSRF_TOKEN")
+
+    def _sync_csrf(self, r):
+        """서버가 내려준 CSRF 토큰(Set-Cookie)이 있으면 쿠키와 헤더를 그 값으로 맞춘다."""
+        for name in self.CSRF_NAMES:
+            v = r.cookies.get(name)
+            if v and v != self.csrf:
+                self.csrf = v
+                self.s.headers["Csrfpreventiontoken"] = v
+                self.s.cookies.set("CSRFPreventionToken", v)
+                return True
+        return False
 
     def dr_protection_list(self):
         return self.request("GET", "/admin/view/dr-protection-list",

@@ -6,9 +6,11 @@
 ./run.sh --console  # 콘솔 내부 API(4430) 인증 방식 점검 (aDR 드릴용)
 ./run.sh --get /admin/view/running-ulog-list          # 콘솔 조회 API 응답 보기 (GET만)
 ./run.sh --get /admin/view/dr-rp-list -q start=0 -q limit=50
+./run.sh --csrf-probe   # 콘솔 변경 요청용 CSRF 토큰을 어디서 받는지 진단 (상태 변경 없음)
 """
 import argparse
 import json
+import re
 import socket
 import sys
 import urllib.parse
@@ -35,10 +37,13 @@ def main():
     ap.add_argument("--get", metavar="PATH", help="콘솔 조회 API(GET) 응답 출력 (예: /admin/view/dr-rp-list)")
     ap.add_argument("-q", action="append", default=[], metavar="KEY=VALUE", help="--get 쿼리 파라미터")
     ap.add_argument("-o", "--out", help="--get 응답을 파일로 저장")
+    ap.add_argument("--csrf-probe", action="store_true", help="콘솔 CSRF 토큰 발급 위치 진단")
     a = ap.parse_args()
     load_env()
     if a.get:
         sys.exit(console_get(a.get, a.q, a.out))
+    if a.csrf_probe:
+        sys.exit(csrf_probe())
     if a.console:
         sys.exit(console_probe(a.raw))
 
@@ -104,6 +109,73 @@ def console_get(path, qs, out=None):
         print(f"저장: {out} ({len(text)} bytes)")
     else:
         print(text)
+    return 0
+
+
+def _shape(o, depth=0):
+    """값은 가리고 구조(키 이름)만 보여준다."""
+    if isinstance(o, dict):
+        return {k: _shape(v, depth + 1) if depth < 4 else "…" for k, v in o.items()}
+    if isinstance(o, list):
+        return [_shape(o[0], depth + 1)] if o else []
+    if isinstance(o, str):
+        return f"<str {len(o)}>"
+    return type(o).__name__
+
+
+def csrf_probe():
+    """후보 위치마다 CSRF 관련 쿠키·헤더·응답 필드가 나오는지 본다. 값은 가린다."""
+    import requests
+    host = env("SCP_HOST", required=True)
+    pu = urllib.parse.urlparse(host if host.startswith("http") else "https://" + host)
+    h, scheme = pu.hostname, pu.scheme
+    port = env("CONSOLE_PORT", "4430")
+    s = requests.Session()
+    s.verify = env("SCP_VERIFY_TLS", "0") == "1"
+
+    def show(label, r):
+        names = sorted(set(r.cookies.keys()))
+        hdr = {k: v for k, v in r.headers.items() if "csrf" in k.lower() or "token" in k.lower() or k.lower() == "set-cookie"}
+        print(f"\n== {label}: HTTP {r.status_code}")
+        print(f"   Set-Cookie 이름: {names or '-'}")
+        for k, v in hdr.items():
+            print(f"   헤더 {k}: " + re.sub(r"=([^;]{6})[^;]*", r"=\1…", v)[:300])
+        try:
+            j = r.json()
+            text = json.dumps(_shape(j), ensure_ascii=False)
+            print("   응답 구조: " + text[:1500])
+        except ValueError:
+            body = r.text
+            hits = re.findall(r"(?i)[^\n]{0,40}csrf[^\n]{0,60}", body)[:5]
+            print(f"   응답: HTML/텍스트 {len(body)}자" + (", csrf 언급: " + " | ".join(re.sub(r"([\"'=:]\s*[\"']?)([A-Za-z0-9_-]{4})[A-Za-z0-9_-]+", r"\1\2…", x.strip())[:100] for x in hits) if hits else ""))
+
+    import re
+    c = SCPClient(host, auth="token", username=env("SCP_USER"), password=env("SCP_PASS"),
+                  verify=s.verify)
+    # 1) OpenAPI v2 로그인 응답 전체 구조
+    from binascii import a2b_hex
+    from Crypto.Cipher import PKCS1_OAEP
+    from Crypto.PublicKey import RSA
+    from Crypto.Util.number import bytes_to_long
+    r = s.get(c.base + "/janus/v2/public-key", timeout=30)
+    b = r.json()
+    mod = b.get("public_key") or (b.get("data") or {}).get("public_key")
+    enc = PKCS1_OAEP.new(RSA.construct((bytes_to_long(a2b_hex(mod)), 0x10001))).encrypt(env("SCP_PASS").encode()).hex()
+    r = s.post(c.base + "/janus/v2/authenticate", json={"auth": {"passwordCredentials": {"username": env("SCP_USER"), "password": enc}}}, timeout=30)
+    show("1. OpenAPI 로그인 /janus/v2/authenticate", r)
+    tok = r.json()["data"]["access"]["token"]["id"]
+
+    base = f"{scheme}://{h}:{port}"
+    s.cookies.set("aCMPAuthToken", tok)
+    s.cookies.set("login", "local")
+    common = {"Client_token": tok, "X-Requested-With": "XMLHttpRequest", "Referer": base + "/"}
+    show("2. 콘솔 첫 페이지 GET /", s.get(base + "/", headers=common, timeout=30))
+    show("3. 콘솔 조회 GET /admin/view/dr-rp-list", s.get(base + "/admin/view/dr-rp-list", params={"start": 0, "limit": 1}, headers=common, timeout=30))
+    for path in ("/admin/users/self", "/admin/tokens/self", "/admin/tokens"):
+        show(f"4. 후보 GET {path}", s.get(base + path, headers=common, timeout=30))
+    show("5. 세션 연장 POST /admin/tokens/extend-expiration (상태 변경 아님)",
+         s.post(base + "/admin/tokens/extend-expiration", headers=dict(common, **{"Content-Type": "application/json"}), data="{}", timeout=30))
+    print("\n세션 쿠키 이름 전체:", sorted(set(s.cookies.keys())))
     return 0
 
 
