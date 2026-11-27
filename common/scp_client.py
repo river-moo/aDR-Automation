@@ -297,6 +297,7 @@ class ConsoleClient:
     #   본문: username, password(RSA 암호화 16진수), status=agree, user_login=true
     #   응답: data.client_token(=aCMPAuthToken), data.CSRFPreventionToken
     ENC_MODES = {
+        "page-pkcs1": ("page", "pkcs1"),   # 6.11.3 실측: 로그인 화면 HTML의 RSAModulus
         "v2-oaep": ("/janus/v2/public-key", "oaep"),
         "v1-pkcs1": ("/janus/public-key", "pkcs1"),
         "v2-pkcs1": ("/janus/v2/public-key", "pkcs1"),
@@ -308,20 +309,34 @@ class ConsoleClient:
         from Crypto.Cipher import PKCS1_OAEP, PKCS1_v1_5
         from Crypto.PublicKey import RSA
         from Crypto.Util.number import bytes_to_long
+        import re
         key_path, pad = self.ENC_MODES[mode]
-        r = self.s.get(self.api_base + key_path, timeout=self.timeout)
-        r.raise_for_status()
-        b = r.json()
-        mod = (b.get("public_key") or (b.get("data") or {}).get("public_key") or "").strip()
+        exp = 0x10001
+        if key_path == "page":
+            html = self.login_page or ""
+            m = re.search(r"RSAModulus\s*[:=]\s*['\"]([0-9A-Fa-f]+)['\"]", html)
+            if not m:
+                raise SCPError("[console] 로그인 화면에서 RSAModulus를 찾지 못했습니다")
+            mod = m.group(1)
+            e = re.search(r"RSAExponent\s*[:=]\s*['\"]?([0-9A-Fa-fx]+)['\"]?", html)
+            if e:
+                v = e.group(1).lower()
+                exp = int(v, 16) if (v.startswith("0x") or any(c in "abcdef" for c in v) or v == "10001") else int(v)
+        else:
+            r = self.s.get(self.api_base + key_path, timeout=self.timeout)
+            r.raise_for_status()
+            b = r.json()
+            mod = (b.get("public_key") or (b.get("data") or {}).get("public_key") or "").strip()
         if len(mod) % 2:  # 앞자리 0이 빠진 16진수(jsbn 형식) 보정 - 6.11.3 v1 공개키 실측
             mod = "0" + mod
-        pub = RSA.construct((bytes_to_long(a2b_hex(mod)), 0x10001)).publickey()
+        pub = RSA.construct((bytes_to_long(a2b_hex(mod)), exp)).publickey()
         cipher = PKCS1_OAEP.new(pub) if pad == "oaep" else PKCS1_v1_5.new(pub)
         return cipher.encrypt(password.encode()).hex()
 
     def login_ticket(self, username, password, mode):
-        try:  # 로그인 화면이 주는 사전 쿠키(SF_SID 등) 받기
-            self.s.get(self.base + "/login", timeout=self.timeout)
+        self.login_page = ""
+        try:  # 로그인 화면: 사전 쿠키(SF_SID, CSRF) + 공개키(RSAModulus)
+            self.login_page = self.s.get(self.base + "/login", timeout=self.timeout).text
         except requests.RequestException:
             pass
         form = {"username": username, "password": self._encrypt(password, mode),
@@ -352,7 +367,7 @@ class ConsoleClient:
         if src == "ticket":
             if not (env("SCP_USER") and env("SCP_PASS")):
                 raise SCPError("CONSOLE_TOKEN_SOURCE=ticket 은 SCP_USER/SCP_PASS가 필요합니다")
-            c.login_ticket(env("SCP_USER"), env("SCP_PASS"), env("CONSOLE_LOGIN_ENC", "v2-oaep"))
+            c.login_ticket(env("SCP_USER"), env("SCP_PASS"), env("CONSOLE_LOGIN_ENC", "page-pkcs1"))
         elif src == "manual":
             c.set_token(env("CONSOLE_TOKEN", required=True), env("CONSOLE_CSRF"))
         else:
