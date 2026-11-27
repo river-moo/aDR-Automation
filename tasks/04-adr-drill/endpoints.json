@@ -41,7 +41,9 @@
         "drlog_id": "${drlog_id}"
       },
       "require_state": [
-        "finish"
+        "finish",
+        "failed",
+        "failure"
       ],
       "wait": {
         "until_state": [
@@ -98,6 +100,7 @@
       "verified": true,
       "require_state": [
         "finish",
+        "failed",
         "failure"
       ]
     }

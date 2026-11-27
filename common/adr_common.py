@@ -124,6 +124,8 @@ def wait_rp(cc, rp_id, until_states, action=None, before_ulog=None, timeout=3600
             seen = cur
         if prog.get("failed"):
             raise RuntimeError(f"복구 계획 작업 실패 {prog.get('failed')}건 - 콘솔 Tasks에서 원인 확인")
+        if state in ("failed", "failure") and state not in until_states:
+            raise RuntimeError(f"복구 계획 상태가 '{state}'(동작 {act})로 끝남 - 콘솔 Tasks에서 원인 확인 후 cleanup으로 정리")
         if first is None:
             first = (act, state)
         elif (act, state) != first:
