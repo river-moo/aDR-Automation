@@ -144,7 +144,8 @@ class SCPClient:
                 r = self.s.get(self.base + prefix + "/public-key", timeout=self.timeout)
                 r.raise_for_status()
                 b = r.json()
-                mod = b.get("public_key") or (b.get("data") or {}).get("public_key")
+                mod = (b.get("public_key") or (b.get("data") or {}).get("public_key") or "").strip()
+                mod = "0" + mod if len(mod) % 2 else mod
                 pub = RSA.construct((bytes_to_long(a2b_hex(mod)), 0x10001)).publickey()
                 cipher = PKCS1_OAEP.new(pub) if ver == "v2" else PKCS1_v1_5.new(pub)
                 enc = cipher.encrypt(self.password.encode()).hex()
@@ -311,7 +312,9 @@ class ConsoleClient:
         r = self.s.get(self.api_base + key_path, timeout=self.timeout)
         r.raise_for_status()
         b = r.json()
-        mod = b.get("public_key") or (b.get("data") or {}).get("public_key")
+        mod = (b.get("public_key") or (b.get("data") or {}).get("public_key") or "").strip()
+        if len(mod) % 2:  # 앞자리 0이 빠진 16진수(jsbn 형식) 보정 - 6.11.3 v1 공개키 실측
+            mod = "0" + mod
         pub = RSA.construct((bytes_to_long(a2b_hex(mod)), 0x10001)).publickey()
         cipher = PKCS1_OAEP.new(pub) if pad == "oaep" else PKCS1_v1_5.new(pub)
         return cipher.encrypt(password.encode()).hex()

@@ -191,7 +191,7 @@ def console_login_probe():
         print("[FAIL] .env에 SCP_USER/SCP_PASS가 필요합니다")
         return 1
     fixed = env("CONSOLE_LOGIN_ENC")
-    modes = [fixed] if fixed else ["v2-oaep", "v1-pkcs1"]
+    modes = [fixed] if fixed else ["v1-pkcs1", "v2-oaep"]
     for mode in modes:
         c = ConsoleClient(env("SCP_HOST"), port=int(env("CONSOLE_PORT", "4430")),
                           verify=env("SCP_VERIFY_TLS", "0") == "1")
