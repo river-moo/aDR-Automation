@@ -62,6 +62,10 @@ def run_step(clients, eps, name, rp):
     if name == "verify":
         return verify_targets()
     ep = eps[name]
+    need = ep.get("require_state")
+    cur = (rp.get("status") or {}).get("state")
+    if need and cur not in need:
+        raise SCPError(f"{name}: 현재 상태 '{cur}'에서는 실행할 수 없습니다 (필요: {', '.join(need)})")
     client = clients["console"] if ep.get("api", "console") == "console" else clients["openapi"]()
     before = (rp.get("status") or {}).get("ulog_id")
     before_pair = ((rp.get("status") or {}).get("action"), (rp.get("status") or {}).get("state"))

@@ -95,7 +95,11 @@
           "ready"
         ]
       },
-      "verified": true
+      "verified": true,
+      "require_state": [
+        "finish",
+        "failure"
+      ]
     }
   }
 }
