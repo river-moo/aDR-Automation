@@ -265,29 +265,76 @@ class ConsoleClient:
       Csrfpreventiontoken: <csrf>      (쿠키와 같은 값)
       X-Requested-With: XMLHttpRequest
     토큰 얻는 방법 (CONSOLE_TOKEN_SOURCE):
-      janus  : OpenAPI 토큰 로그인(/janus/v2/authenticate) 결과를 그대로 사용 - 동작 여부를 01 --console로 확인
+      ticket : 콘솔과 같은 로그인(POST /ticket) - 조회·변경 모두 가능 (기본)
+      janus  : OpenAPI 토큰 로그인 결과를 재사용 - 조회(GET)만 가능, 변경 요청은 CSRF 거부
       manual : 브라우저에서 복사한 CONSOLE_TOKEN / CONSOLE_CSRF 사용 (테스트용, 세션 만료 시 갱신)
     """
 
     def __init__(self, host, port=4430, token=None, csrf=None, verify=False, timeout=30):
-        h = urllib.parse.urlparse(host if host.startswith("http") else "https://" + host).hostname
-        self.base = f"https://{h}:{port}"
+        pu = urllib.parse.urlparse(host if host.startswith("http") else "https://" + host)
+        self.base = f"{pu.scheme}://{pu.hostname}:{port}"
+        self.api_base = f"{pu.scheme}://{pu.netloc}"  # 공개키는 OpenAPI(기본 443) 쪽
         self.timeout = timeout
         self.s = requests.Session()
         self.s.verify = verify
         self.set_token(token, csrf)
 
-    def set_token(self, token, csrf=None):
+    def set_token(self, token, csrf=None, keep_cookies=False):
         self.token = token
-        self.csrf = csrf or uuid.uuid4().hex  # 이중 제출 방식이면 임의 값도 통과
+        self.csrf = csrf or uuid.uuid4().hex  # 조회(GET)는 임의 값도 통과, 변경 요청은 ticket 로그인 값 필요
         self.s.headers.update({"Content-Type": "application/json; charset=utf-8",
                                "X-Requested-With": "XMLHttpRequest",
                                "Client_token": token or "", "Csrfpreventiontoken": self.csrf, "Sid": "",
                                "Referer": self.base + "/"})
-        self.s.cookies.clear()
+        if not keep_cookies:
+            self.s.cookies.clear()
         for k, v in (("aCMPAuthToken", token or ""), ("CSRFPreventionToken", self.csrf),
                      ("login", "local"), ("language", "en_US")):
             self.s.cookies.set(k, v)
+
+    # -------- 콘솔 로그인 (6.11.3 실측: POST /ticket, 폼 형식)
+    #   본문: username, password(RSA 암호화 16진수), status=agree, user_login=true
+    #   응답: data.client_token(=aCMPAuthToken), data.CSRFPreventionToken
+    ENC_MODES = {
+        "v2-oaep": ("/janus/v2/public-key", "oaep"),
+        "v1-pkcs1": ("/janus/public-key", "pkcs1"),
+        "v2-pkcs1": ("/janus/v2/public-key", "pkcs1"),
+        "v1-oaep": ("/janus/public-key", "oaep"),
+    }
+
+    def _encrypt(self, password, mode):
+        from binascii import a2b_hex
+        from Crypto.Cipher import PKCS1_OAEP, PKCS1_v1_5
+        from Crypto.PublicKey import RSA
+        from Crypto.Util.number import bytes_to_long
+        key_path, pad = self.ENC_MODES[mode]
+        r = self.s.get(self.api_base + key_path, timeout=self.timeout)
+        r.raise_for_status()
+        b = r.json()
+        mod = b.get("public_key") or (b.get("data") or {}).get("public_key")
+        pub = RSA.construct((bytes_to_long(a2b_hex(mod)), 0x10001)).publickey()
+        cipher = PKCS1_OAEP.new(pub) if pad == "oaep" else PKCS1_v1_5.new(pub)
+        return cipher.encrypt(password.encode()).hex()
+
+    def login_ticket(self, username, password, mode):
+        try:  # 로그인 화면이 주는 사전 쿠키(SF_SID 등) 받기
+            self.s.get(self.base + "/login", timeout=self.timeout)
+        except requests.RequestException:
+            pass
+        form = {"username": username, "password": self._encrypt(password, mode),
+                "status": "agree", "user_login": "true"}
+        r = self.s.post(self.base + "/ticket", data=form, timeout=self.timeout,
+                        headers={"Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                                 "Accept": "application/json, text/javascript, */*; q=0.01"})
+        try:
+            j = r.json()
+        except ValueError:
+            raise SCPError(f"[console] /ticket 로그인 응답이 JSON이 아님 (HTTP {r.status_code})")
+        d = j.get("data") or {}
+        if not (j.get("success") == 1 and d.get("client_token") and d.get("CSRFPreventionToken")):
+            raise SCPError(f"[console] /ticket 로그인 실패({mode}): {j.get('message') or j.get('dbgmsg') or str(j)[:200]}")
+        self.set_token(d["client_token"], d["CSRFPreventionToken"], keep_cookies=True)
+        return d
 
     @classmethod
     def from_env_with(cls, src):
@@ -296,10 +343,14 @@ class ConsoleClient:
 
     @classmethod
     def from_env(cls, api=None):
-        src = env("CONSOLE_TOKEN_SOURCE", "janus")
+        src = env("CONSOLE_TOKEN_SOURCE", "ticket")
         c = cls(env("SCP_HOST", required=True), port=int(env("CONSOLE_PORT", "4430")),
                 verify=env("SCP_VERIFY_TLS", "0") == "1", timeout=int(env("SCP_TIMEOUT", "30")))
-        if src == "manual":
+        if src == "ticket":
+            if not (env("SCP_USER") and env("SCP_PASS")):
+                raise SCPError("CONSOLE_TOKEN_SOURCE=ticket 은 SCP_USER/SCP_PASS가 필요합니다")
+            c.login_ticket(env("SCP_USER"), env("SCP_PASS"), env("CONSOLE_LOGIN_ENC", "v2-oaep"))
+        elif src == "manual":
             c.set_token(env("CONSOLE_TOKEN", required=True), env("CONSOLE_CSRF"))
         else:
             api = api or SCPClient(env("SCP_HOST"), auth="token", username=env("SCP_USER"),

@@ -7,6 +7,7 @@
 ./run.sh --get /admin/view/running-ulog-list          # 콘솔 조회 API 응답 보기 (GET만)
 ./run.sh --get /admin/view/dr-rp-list -q start=0 -q limit=50
 ./run.sh --csrf-probe   # 콘솔 변경 요청용 CSRF 토큰을 어디서 받는지 진단 (상태 변경 없음)
+./run.sh --console-login  # 콘솔 로그인(/ticket) + 쓰기 권한(CSRF) 점검. 암호화 방식 최대 2가지 시도
 """
 import argparse
 import json
@@ -38,12 +39,15 @@ def main():
     ap.add_argument("-q", action="append", default=[], metavar="KEY=VALUE", help="--get 쿼리 파라미터")
     ap.add_argument("-o", "--out", help="--get 응답을 파일로 저장")
     ap.add_argument("--csrf-probe", action="store_true", help="콘솔 CSRF 토큰 발급 위치 진단")
+    ap.add_argument("--console-login", action="store_true", help="콘솔 /ticket 로그인 + 쓰기(CSRF) 점검")
     a = ap.parse_args()
     load_env()
     if a.get:
         sys.exit(console_get(a.get, a.q, a.out))
     if a.csrf_probe:
         sys.exit(csrf_probe())
+    if a.console_login:
+        sys.exit(console_login_probe())
     if a.console:
         sys.exit(console_probe(a.raw))
 
@@ -177,6 +181,39 @@ def csrf_probe():
          s.post(base + "/admin/tokens/extend-expiration", headers=dict(common, **{"Content-Type": "application/json"}), data="{}", timeout=30))
     print("\n세션 쿠키 이름 전체:", sorted(set(s.cookies.keys())))
     return 0
+
+
+def console_login_probe():
+    """콘솔 /ticket 로그인 방식을 찾고, 쓰기 요청이 CSRF를 통과하는지 확인한다.
+    로그인 실패가 쌓이면 계정이 잠길 수 있어 최대 2가지 방식만 시도한다."""
+    user, pw = env("SCP_USER"), env("SCP_PASS")
+    if not (user and pw):
+        print("[FAIL] .env에 SCP_USER/SCP_PASS가 필요합니다")
+        return 1
+    fixed = env("CONSOLE_LOGIN_ENC")
+    modes = [fixed] if fixed else ["v2-oaep", "v1-pkcs1"]
+    for mode in modes:
+        c = ConsoleClient(env("SCP_HOST"), port=int(env("CONSOLE_PORT", "4430")),
+                          verify=env("SCP_VERIFY_TLS", "0") == "1")
+        try:
+            d = c.login_ticket(user, pw, mode)
+        except Exception as e:  # noqa: BLE001
+            print(f"[FAIL] 로그인 방식 {mode}: {e}")
+            continue
+        print(f"[OK]   콘솔 로그인 성공 (방식 {mode}, 사용자 {d.get('username')}, 접속 IP {d.get('client_ip')})")
+        try:
+            c.request("GET", "/admin/view/dr-rp-list", params={"start": 0, "limit": 1})
+            print("[OK]   조회(GET) 동작")
+            c.request("POST", "/admin/tokens/extend-expiration", body={})
+            print("[OK]   쓰기 요청 CSRF 통과 (세션 연장 POST, 상태 변경 없음)")
+        except Exception as e:  # noqa: BLE001
+            print(f"[FAIL] 로그인 후 요청 실패: {e}")
+            return 1
+        print(f"\n결과: .env에 아래 두 줄을 넣으세요\n  CONSOLE_TOKEN_SOURCE=ticket\n  CONSOLE_LOGIN_ENC={mode}")
+        return 0
+    print("\n결과: 콘솔 로그인 실패. 계정 잠금 방지를 위해 더 시도하지 않습니다."
+          "\n      비밀번호 확인 후, 브라우저 로그인 직전 GET 요청 중 'key'가 들어간 요청 이름을 알려주세요.")
+    return 1
 
 
 def console_probe(raw=False):
