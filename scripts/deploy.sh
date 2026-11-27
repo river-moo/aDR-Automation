@@ -42,11 +42,11 @@ extract() {
 for t in .incoming/*.tar.gz; do
   n=\$(basename "\$t" .tar.gz)
   if [ -d "\$n" ]; then
-    mkdir -p ".backup/\$n-\$(date +%Y%m%d%H%M%S)"
+    keepdir=".backup/\$n-\$(date +%Y%m%d%H%M%S)"
+    mkdir -p "\$keepdir"
     for keep in .env endpoints.json reports har out; do
-      [ -e "\$n/\$keep" ] && cp -a "\$n/\$keep" ".backup/\$n-\$(date +%Y%m%d%H%M%S)/" || true
+      if [ -e "\$n/\$keep" ]; then cp -a "\$n/\$keep" "\$keepdir/"; fi
     done
-    keepdir=\$(ls -dt .backup/\$n-* | head -1)
   else
     keepdir=""
   fi
