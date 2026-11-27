@@ -304,7 +304,7 @@ class ConsoleClient:
         "v1-oaep": ("/janus/public-key", "oaep"),
     }
 
-    def _encrypt(self, password, mode):
+    def _encrypt(self, plaintext, mode):
         from binascii import a2b_hex
         from Crypto.Cipher import PKCS1_OAEP, PKCS1_v1_5
         from Crypto.PublicKey import RSA
@@ -331,14 +331,17 @@ class ConsoleClient:
             mod = "0" + mod
         pub = RSA.construct((bytes_to_long(a2b_hex(mod)), exp)).publickey()
         cipher = PKCS1_OAEP.new(pub) if pad == "oaep" else PKCS1_v1_5.new(pub)
-        return cipher.encrypt(password.encode()).hex()
+        return cipher.encrypt(plaintext.encode()).hex().zfill(len(mod))
 
     def login_ticket(self, username, password, mode):
-        """콘솔과 같은 로그인. 6.11.3 실측 흐름:
-          1) GET /login -> HTML 안 window.VMP.data.ticket(일회용 UUID)과 RSAModulus
-          2) 쿠키 CSRFPreventionToken=<ticket>, 헤더 Csrfpreventiontoken=빈 값으로
-             POST /ticket (폼: username, password(RSA), status=agree, user_login=true)
-          3) 응답 data.client_token / data.CSRFPreventionToken 으로 이후 요청"""
+        """콘솔 로그인 버튼과 같은 흐름 (6.11.3 로그인 JS 48214 모듈 ge() 실측):
+          1) GET /login -> window.VMP.data.ticket(UUID)을 CSRFPreventionToken 쿠키로, RSAModulus
+          2) POST /logout (헤더 csrfpreventiontoken=ticket) - 로그인 화면이 먼저 호출
+          3) GET /salt -> {salt, timestamp}
+          4) 평문 = salt가 있으면 "timestamp#salt#password", 없으면 password
+             RSA(RSAModulus, e=10001) PKCS#1 v1.5 -> 16진수(키 길이로 0 채움)
+          5) POST /ticket (폼: username, password, status=agree, user_login=true)
+          6) 응답 data.client_token / data.CSRFPreventionToken 으로 이후 요청"""
         import re
         self.s.cookies.clear()
         for h in ("Client_token", "Csrfpreventiontoken", "Sid"):
@@ -352,7 +355,20 @@ class ConsoleClient:
             raise SCPError("[console] 로그인 화면에서 ticket 값을 찾지 못했습니다")
         ticket = m.group(1)
         self.s.cookies.set("CSRFPreventionToken", ticket)
-        form = {"username": username, "password": self._encrypt(password, mode),
+        ajax = {"X-Requested-With": "XMLHttpRequest", "Accept-Language": "en_US",
+                "Origin": self.base, "Referer": self.base + "/login"}
+        try:
+            self.s.post(self.base + "/logout", headers=dict(ajax, csrfpreventiontoken=ticket), timeout=self.timeout)
+        except requests.RequestException:
+            pass
+        self.s.cookies.set("CSRFPreventionToken", ticket)  # 로그아웃 응답이 쿠키를 지워도 화면처럼 티켓 유지
+        r = self.s.get(self.base + "/salt", headers=ajax, timeout=self.timeout)
+        try:
+            salt = (r.json() or {}).get("data") or {}
+        except ValueError:
+            raise SCPError(f"[console] /salt 응답이 JSON이 아님 (HTTP {r.status_code})")
+        plain = f"{salt.get('timestamp')}#{salt.get('salt')}#{password}" if salt.get("salt") else password
+        form = {"username": username, "password": self._encrypt(plain, mode),
                 "status": "agree", "user_login": "true"}
         r = self.s.post(self.base + "/ticket", data=form, timeout=self.timeout, headers={
             "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
