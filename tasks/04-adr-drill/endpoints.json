@@ -9,15 +9,25 @@
     "verified: 랩에서 단독 호출로 동작 확인 후에만 true (false면 실행 거부)",
     "SCP 6.11.3 콘솔 JS(모듈 46667)에서 확인: 시작은 PUT /admin/dr/rps/state/transform {rps:[...]}, 종료는 DELETE /admin/dr/rps/{rp_id}/drill/{drlog_id}",
     "${drlog_id}: dr-rp-list status.drlog_id (현재 드릴 작업 ID)",
-    "6.11.3 실측(dr/drlogs): 드릴 action=drill(약 10분), 테스트 종료 action=drill_clean(약 1분, 드릴의 하위 작업)"
+    "6.11.3 실측(dr/drlogs): 드릴 action=drill(약 10분), 테스트 종료 action=drill_clean(약 1분, 드릴의 하위 작업)",
+    "clear_state: 콘솔이 테스트 종료 후 'Change DR state'로 부르는 상태 정리 API (finish/failure -> ready)"
   ],
   "endpoints": {
     "drill_start": {
       "api": "console",
-      "method": "PUT",
-      "path": "/admin/dr/rps/state/transform",
+      "method": "TODO",
+      "path": "TODO: disasterDrill URL (모듈 262923)",
       "body": {
-        "rps": "TODO: changeRecoverPlanState 호출부에서 형식 확인"
+        "drill": {
+          "rps": [
+            {
+              "rp_id": "${rp_id}",
+              "servers": "TODO: pg_id, server_id, protection_id, src_clusters, des_clusters, recovery_storage_id"
+            }
+          ],
+          "need_sync": 0,
+          "enable_resource_reserve": 0
+        }
       },
       "require_state": [
         "ready"
@@ -51,11 +61,9 @@
     },
     "failover": {
       "api": "console",
-      "method": "PUT",
-      "path": "/admin/dr/rps/state/transform",
-      "body": {
-        "rps": "TODO: changeRecoverPlanState 호출부에서 형식 확인"
-      },
+      "method": "TODO",
+      "path": "TODO",
+      "body": {},
       "require_state": [
         "ready"
       ],
@@ -68,14 +76,30 @@
     },
     "failback": {
       "api": "console",
-      "method": "PUT",
-      "path": "/admin/dr/rps/state/transform",
-      "body": {
-        "rps": "TODO: changeRecoverPlanState 호출부에서 형식 확인"
-      },
+      "method": "TODO",
+      "path": "TODO",
+      "body": {},
       "wait": {
         "until_state": [
           "finish",
+          "ready"
+        ]
+      },
+      "verified": false
+    },
+    "clear_state": {
+      "api": "console",
+      "method": "PUT",
+      "path": "/admin/dr/rps/state/transform",
+      "body": {
+        "rps": [
+          {
+            "rp_id": "${rp_id}"
+          }
+        ]
+      },
+      "wait": {
+        "until_state": [
           "ready"
         ]
       },

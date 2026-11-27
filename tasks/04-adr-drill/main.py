@@ -24,8 +24,8 @@ from scp_client import ConsoleClient, SCPClient, SCPError, call_endpoint, env, l
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PLAN = {
-    "drill": ["drill_start", "verify", "drill_cleanup"],
-    "cleanup": ["drill_cleanup"],
+    "drill": ["drill_start", "verify", "drill_cleanup", "clear_state"],
+    "cleanup": ["drill_cleanup", "clear_state"],
     "failover": ["failover", "verify"],
     "failback": ["failback", "verify"],
 }
@@ -114,7 +114,7 @@ def main():
         log("사전 점검 FAIL - 중단합니다 (--skip-precheck로 무시 가능)")
         return 1
 
-    steps = [s for s in PLAN[a.action] if not (a.keep and s == "drill_cleanup")]
+    steps = [s for s in PLAN[a.action] if not (a.keep and s in ("drill_cleanup", "clear_state"))]
     api_steps = [s for s in steps if s != "verify"]
     missing = [s for s in api_steps if s not in eps]
     unverified = [s for s in api_steps if s in eps and not eps[s].get("verified")]
@@ -146,6 +146,7 @@ def main():
             if a.action == "drill" and not a.keep:
                 log("검증 실패해도 드릴 환경은 정리합니다")
                 run_step(clients, eps, "drill_cleanup", rp)
+                run_step(clients, eps, "clear_state", rp)
             return 1
     log(f"{a.action} 완료")
     return 0
