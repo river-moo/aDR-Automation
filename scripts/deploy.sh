@@ -25,6 +25,20 @@ scp "${pkgs[@]}" "$TARGET:$DEST/.incoming/"
 ssh "$TARGET" "bash -s" <<EOF
 set -e
 cd '$DEST'
+# 최소 설치 OS 대응: tar가 없으면 설치 시도, 안 되면 python3 tarfile로 풀기
+extract() {
+  if command -v tar >/dev/null 2>&1; then tar xzf "\$1"; return; fi
+  for pm in dnf yum apt-get zypper; do
+    if command -v \$pm >/dev/null 2>&1; then
+      echo "[deploy] tar가 없어 \$pm 으로 설치합니다"
+      case \$pm in apt-get) apt-get install -y tar ;; zypper) zypper -n install tar ;; *) \$pm install -y tar ;; esac >/dev/null 2>&1 || true
+      break
+    fi
+  done
+  if command -v tar >/dev/null 2>&1; then tar xzf "\$1"
+  elif command -v python3 >/dev/null 2>&1; then python3 -m tarfile -e "\$1" .
+  else echo "[deploy] tar도 python3도 없습니다. 'dnf install -y tar python3' 후 다시 실행하세요" >&2; exit 1; fi
+}
 for t in .incoming/*.tar.gz; do
   n=\$(basename "\$t" .tar.gz)
   if [ -d "\$n" ]; then
@@ -36,7 +50,7 @@ for t in .incoming/*.tar.gz; do
   else
     keepdir=""
   fi
-  tar xzf "\$t"
+  extract "\$t"
   if [ -n "\$keepdir" ]; then cp -a "\$keepdir"/. "\$n"/; fi
   ( cd "\$n" && ./install.sh )
 done
