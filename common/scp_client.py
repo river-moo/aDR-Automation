@@ -248,3 +248,80 @@ class SCPClient:
             body = json.loads(sub(json.dumps(body)))
         params = {k: sub(str(v)) for k, v in (ep.get("query") or {}).items()} or None
         return self.request(ep["method"], sub(ep["path"]), params=params, body=body)
+
+
+# ---------------------------------------------------------------- 콘솔(4430) 세션
+class ConsoleClient:
+    """SCP 웹 콘솔 내부 API (https://HOST:4430/admin/...) 호출용.
+
+    콘솔 요청 형태 (6.11.3 캡처):
+      Cookie: aCMPAuthToken=<토큰>; CSRFPreventionToken=<csrf>; login=local
+      Client_token: <토큰>             (aCMPAuthToken과 같은 값)
+      Csrfpreventiontoken: <csrf>      (쿠키와 같은 값)
+      X-Requested-With: XMLHttpRequest
+    토큰 얻는 방법 (CONSOLE_TOKEN_SOURCE):
+      janus  : OpenAPI 토큰 로그인(/janus/v2/authenticate) 결과를 그대로 사용 - 동작 여부를 01 --console로 확인
+      manual : 브라우저에서 복사한 CONSOLE_TOKEN / CONSOLE_CSRF 사용 (테스트용, 세션 만료 시 갱신)
+    """
+
+    def __init__(self, host, port=4430, token=None, csrf=None, verify=False, timeout=30):
+        h = urllib.parse.urlparse(host if host.startswith("http") else "https://" + host).hostname
+        self.base = f"https://{h}:{port}"
+        self.timeout = timeout
+        self.s = requests.Session()
+        self.s.verify = verify
+        self.set_token(token, csrf)
+
+    def set_token(self, token, csrf=None):
+        self.token = token
+        self.csrf = csrf or uuid.uuid4().hex  # 이중 제출 방식이면 임의 값도 통과
+        self.s.headers.update({"Content-Type": "application/json; charset=utf-8",
+                               "X-Requested-With": "XMLHttpRequest",
+                               "Client_token": token or "", "Csrfpreventiontoken": self.csrf,
+                               "Referer": self.base + "/"})
+        self.s.cookies.clear()
+        for k, v in (("aCMPAuthToken", token or ""), ("CSRFPreventionToken", self.csrf),
+                     ("login", "local"), ("language", "en_US")):
+            self.s.cookies.set(k, v)
+
+    @classmethod
+    def from_env_with(cls, src):
+        os.environ["CONSOLE_TOKEN_SOURCE"] = src
+        return cls.from_env()
+
+    @classmethod
+    def from_env(cls, api=None):
+        src = env("CONSOLE_TOKEN_SOURCE", "janus")
+        c = cls(env("SCP_HOST", required=True), port=int(env("CONSOLE_PORT", "4430")),
+                verify=env("SCP_VERIFY_TLS", "0") == "1", timeout=int(env("SCP_TIMEOUT", "30")))
+        if src == "manual":
+            c.set_token(env("CONSOLE_TOKEN", required=True), env("CONSOLE_CSRF"))
+        else:
+            api = api or SCPClient(env("SCP_HOST"), auth="token", username=env("SCP_USER"),
+                                   password=env("SCP_PASS"), verify=env("SCP_VERIFY_TLS", "0") == "1")
+            if api.mode != "token":
+                raise SCPError("CONSOLE_TOKEN_SOURCE=janus 는 SCP_USER/SCP_PASS 토큰 로그인이 필요합니다")
+            api.login()
+            c.set_token(api.s.headers["Authorization"].split(" ", 1)[1])
+        return c
+
+    def request(self, method, path, params=None, body=None):
+        try:
+            r = self.s.request(method, self.base + path, params=params,
+                               data=json.dumps(body) if body is not None else None, timeout=self.timeout)
+        except requests.RequestException as e:
+            raise SCPError(f"[console] {method} {path} 접속 실패: {e}")
+        if r.status_code in (401, 403):
+            raise SCPError(f"[console] {method} {path} -> HTTP {r.status_code} (토큰/CSRF 거부): {r.text[:200]}")
+        try:
+            data = r.json()
+        except ValueError:
+            raise SCPError(f"[console] {method} {path} -> HTTP {r.status_code}, JSON 아님"
+                           f" (로그인 페이지로 리다이렉트됐을 수 있음): {r.text[:200]}")
+        if r.status_code >= 400:
+            raise SCPError(f"[console] {method} {path} -> HTTP {r.status_code}: {str(data)[:300]}")
+        return data
+
+    def dr_protection_list(self):
+        return self.request("GET", "/admin/view/dr-protection-list",
+                            params={"start": 0, "limit": 50, "sort": "name", "direct": "ASC"})

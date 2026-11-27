@@ -10,6 +10,7 @@ tar xzf 01-scp-connect-check.tar.gz && cd 01-scp-connect-check
 vi .env               # 아래 "수정할 값" 입력
 ./run.sh              # 점검
 ./run.sh --raw        # 응답 원문까지 출력
+./run.sh --console    # 콘솔 내부 API(4430) 인증 점검 - aDR 드릴(Task 04) 쓰기 전에
 ```
 
 ## 환경별로 수정할 값 (`.env`)
@@ -23,6 +24,16 @@ vi .env               # 아래 "수정할 값" 입력
 | `SCP_EC2_SIGN_QUERY` | 점검 결과가 바꾸라고 할 때만 (6.11.3 실측 `0`) | `0` |
 | `SCP_EC2_REGION`, `SCP_EC2_SERVICE` | 인증만 계속 실패할 때 본사에 값 확인 | `cn-south-1`, `sdk-api` |
 | `SCP_VERIFY_TLS` | SCP에 정식 인증서가 있을 때 `1` | `0` |
+
+| `SCP_USER`, `SCP_PASS` | `--console` 점검·aDR 드릴에 필요 (콘솔 admin 계정) | `admin` |
+| `CONSOLE_TOKEN_SOURCE` | `--console` 결과에 따라 `janus` 또는 `manual` | `janus` |
+| `CONSOLE_TOKEN`, `CONSOLE_CSRF` | `manual`일 때만. 브라우저 쿠키 `aCMPAuthToken`, `CSRFPreventionToken` 값 | |
+
+## 콘솔 내부 API
+
+aDR 드릴·전환은 공식 OpenAPI(443 `/janus`)에 없고, 콘솔 API(`https://SCP:4430/admin/...`)에 있어요.
+콘솔은 AK/SK 서명 대신 `aCMPAuthToken` 토큰과 CSRF 토큰을 쿠키와 헤더에 같이 넣어 인증합니다.
+`--console`은 OpenAPI 로그인 토큰이 콘솔에서도 통하는지 확인해요. 통하면 별도 로그인 캡처가 필요 없습니다.
 
 ## 실패할 때
 
