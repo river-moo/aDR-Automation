@@ -1,0 +1,7 @@
+# 오프라인 번들 고정 버전 (Python 3.7+ / OpenSSL 1.0.2 이상 OS 호환 위해 urllib3 1.26 계열)
+requests==2.31.0
+urllib3==1.26.20
+idna==3.7
+certifi==2024.8.30
+charset-normalizer==3.3.2
+pycryptodome==3.21.0   # x86_64, aarch64 abi3 wheel 2개

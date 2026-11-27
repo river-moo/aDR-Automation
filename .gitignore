@@ -1,0 +1,11 @@
+dist/
+.env
+*.env
+!common/env.example
+lab/
+*.har
+reports/
+out/
+__pycache__/
+.python
+vendor/
