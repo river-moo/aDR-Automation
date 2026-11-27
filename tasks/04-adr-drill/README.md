@@ -50,7 +50,7 @@ vi endpoints.json                                    # 캡처 결과로 path/bod
 | 항목 | 채울 내용 |
 |---|---|
 | `api` | `console`(4430, 기본) 또는 `openapi`(443) |
-| `method`, `path` | 캡처한 값. 복구 계획 ID 자리는 `${rp_id}` (`${rp_name}`, `${project_id}`도 사용 가능) |
+| `method`, `path` | 캡처한 값. 복구 계획 ID 자리는 `${rp_id}` (`${rp_name}`, `${project_id}`, 현재 작업 ID `${drlog_id}`도 사용 가능) |
 | `body` | 캡처한 요청 본문. 고정값이 아닌 ID는 변수로 바꾸기 |
 | `require_state` | 실행 전 필요한 계획 상태 (예: 드릴 시작은 `["ready"]`) |
 | `wait` | 실행 후 기다릴 상태 (예: 드릴은 `{"until_state":["finish"],"action":"drill"}`) |

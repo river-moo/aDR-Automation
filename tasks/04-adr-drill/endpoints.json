@@ -6,42 +6,77 @@
     "api: console(4430, 기본) | openapi(443 /janus)",
     "require_state: 실행 전 복구 계획 상태 조건 (dr-rp-list status.state)",
     "wait: 실행 후 dr-rp-list 상태가 until_state가 될 때까지 대기 (action이 있으면 status.action도 일치해야 함)",
-    "verified: 랩에서 단독 호출로 동작 확인 후에만 true (false면 실행 거부)"
+    "verified: 랩에서 단독 호출로 동작 확인 후에만 true (false면 실행 거부)",
+    "SCP 6.11.3 콘솔 JS(모듈 46667)에서 확인: 시작은 PUT /admin/dr/rps/state/transform {rps:[...]}, 종료는 DELETE /admin/dr/rps/{rp_id}/drill/{drlog_id}",
+    "${drlog_id}: dr-rp-list status.drlog_id (현재 드릴 작업 ID)"
   ],
   "endpoints": {
     "drill_start": {
       "api": "console",
-      "method": "POST",
-      "path": "/admin/TODO/${rp_id}",
-      "body": {},
-      "require_state": ["ready"],
-      "wait": {"until_state": ["finish"], "action": "drill"},
+      "method": "PUT",
+      "path": "/admin/dr/rps/state/transform",
+      "body": {
+        "rps": "TODO: changeRecoverPlanState 호출부에서 형식 확인"
+      },
+      "require_state": [
+        "ready"
+      ],
+      "wait": {
+        "until_state": [
+          "finish"
+        ],
+        "action": "drill"
+      },
       "verified": false
     },
     "drill_cleanup": {
       "api": "console",
-      "method": "POST",
-      "path": "/admin/TODO/${rp_id}",
-      "body": {},
-      "require_state": ["finish"],
-      "wait": {"until_state": ["ready"]},
+      "method": "DELETE",
+      "path": "/admin/dr/rps/${rp_id}/drill/${drlog_id}",
+      "body": {
+        "rp_id": "${rp_id}",
+        "drlog_id": "${drlog_id}"
+      },
+      "require_state": [
+        "finish"
+      ],
+      "wait": {
+        "until_state": [
+          "ready"
+        ]
+      },
       "verified": false
     },
     "failover": {
       "api": "console",
-      "method": "POST",
-      "path": "/admin/TODO/${rp_id}",
-      "body": {},
-      "require_state": ["ready"],
-      "wait": {"until_state": ["finish"]},
+      "method": "PUT",
+      "path": "/admin/dr/rps/state/transform",
+      "body": {
+        "rps": "TODO: changeRecoverPlanState 호출부에서 형식 확인"
+      },
+      "require_state": [
+        "ready"
+      ],
+      "wait": {
+        "until_state": [
+          "finish"
+        ]
+      },
       "verified": false
     },
     "failback": {
       "api": "console",
-      "method": "POST",
-      "path": "/admin/TODO/${rp_id}",
-      "body": {},
-      "wait": {"until_state": ["finish", "ready"]},
+      "method": "PUT",
+      "path": "/admin/dr/rps/state/transform",
+      "body": {
+        "rps": "TODO: changeRecoverPlanState 호출부에서 형식 확인"
+      },
+      "wait": {
+        "until_state": [
+          "finish",
+          "ready"
+        ]
+      },
       "verified": false
     }
   }

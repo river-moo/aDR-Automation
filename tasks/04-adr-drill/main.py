@@ -62,7 +62,9 @@ def run_step(clients, eps, name, rp):
     ep = eps[name]
     client = clients["console"] if ep.get("api", "console") == "console" else clients["openapi"]()
     before = (rp.get("status") or {}).get("ulog_id")
-    variables = {"rp_id": rp["id"], "rp_name": rp["name"], "project_id": rp.get("project_id", "")}
+    st = rp.get("status") or {}
+    variables = {"rp_id": rp["id"], "rp_name": rp["name"], "project_id": rp.get("project_id", ""),
+                 "drlog_id": st.get("drlog_id") or "", "drlog_root_id": st.get("drlog_root_id") or ""}
     log(f"{name}: {ep['method']} {ep['path']}")
     resp = call_endpoint(client, ep, name, **variables)
     log(f"  응답: {json.dumps(resp, ensure_ascii=False)[:300]}")
