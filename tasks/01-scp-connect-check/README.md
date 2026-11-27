@@ -11,6 +11,7 @@ vi .env               # 아래 "수정할 값" 입력
 ./run.sh              # 점검
 ./run.sh --raw        # 응답 원문까지 출력
 ./run.sh --console    # 콘솔 내부 API(4430) 인증 점검 - aDR 드릴(Task 04) 쓰기 전에
+./run.sh --get /admin/view/running-ulog-list   # 콘솔 조회 API 응답 보기 (읽기 전용)
 ```
 
 ## 환경별로 수정할 값 (`.env`)

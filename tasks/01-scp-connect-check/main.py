@@ -4,6 +4,8 @@
 ./run.sh            # .env 설정으로 접속, 인증, 버전, 리소스 풀, DR 정책 API까지 확인
 ./run.sh --raw      # 응답 원문(JSON)도 출력
 ./run.sh --console  # 콘솔 내부 API(4430) 인증 방식 점검 (aDR 드릴용)
+./run.sh --get /admin/view/running-ulog-list          # 콘솔 조회 API 응답 보기 (GET만)
+./run.sh --get /admin/view/dr-rp-list -q start=0 -q limit=50
 """
 import argparse
 import json
@@ -30,8 +32,13 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--raw", action="store_true")
     ap.add_argument("--console", action="store_true", help="콘솔 내부 API(4430) 인증 점검")
+    ap.add_argument("--get", metavar="PATH", help="콘솔 조회 API(GET) 응답 출력 (예: /admin/view/dr-rp-list)")
+    ap.add_argument("-q", action="append", default=[], metavar="KEY=VALUE", help="--get 쿼리 파라미터")
+    ap.add_argument("-o", "--out", help="--get 응답을 파일로 저장")
     a = ap.parse_args()
     load_env()
+    if a.get:
+        sys.exit(console_get(a.get, a.q, a.out))
     if a.console:
         sys.exit(console_probe(a.raw))
 
@@ -81,6 +88,23 @@ def main():
     if not ok and c.mode == "ec2":
         print("힌트: AK/SK가 맞는지, SCP 시각과 이 서버 시각이 맞는지(NTP) 확인하세요. 서명은 시간에 민감합니다.")
     sys.exit(0 if ok else 1)
+
+
+def console_get(path, qs, out=None):
+    """읽기 전용 탐색용: 콘솔 GET API를 불러 JSON을 그대로 출력한다."""
+    if not path.startswith("/"):
+        path = "/" + path
+    params = dict(q.split("=", 1) for q in qs) or None
+    c = ConsoleClient.from_env()
+    d = c.request("GET", path, params=params)
+    text = json.dumps(d, ensure_ascii=False, indent=2)
+    if out:
+        with open(out, "w", encoding="utf-8") as f:
+            f.write(text)
+        print(f"저장: {out} ({len(text)} bytes)")
+    else:
+        print(text)
+    return 0
 
 
 def console_probe(raw=False):

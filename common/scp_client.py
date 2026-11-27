@@ -277,7 +277,7 @@ class ConsoleClient:
         self.csrf = csrf or uuid.uuid4().hex  # 이중 제출 방식이면 임의 값도 통과
         self.s.headers.update({"Content-Type": "application/json; charset=utf-8",
                                "X-Requested-With": "XMLHttpRequest",
-                               "Client_token": token or "", "Csrfpreventiontoken": self.csrf,
+                               "Client_token": token or "", "Csrfpreventiontoken": self.csrf, "Sid": "",
                                "Referer": self.base + "/"})
         self.s.cookies.clear()
         for k, v in (("aCMPAuthToken", token or ""), ("CSRFPreventionToken", self.csrf),
