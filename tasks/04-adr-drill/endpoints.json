@@ -12,7 +12,8 @@
     "6.11.3 실측(dr/drlogs): 드릴 action=drill(약 10분), 테스트 종료 action=drill_clean(약 1분, 드릴의 하위 작업)",
     "clear_state: 콘솔이 테스트 종료 후 'Change DR state'로 부르는 상태 정리 API (finish/failure -> ready)",
     "drill_start 본문은 body_builder=drill 로 자동 생성 (GET /admin/view/dr-server-list 값 사용). 6.11.3 캡처 본문과 같은 형식",
-    "method는 캡처에서 확인 못 함: POST로 보내고 HTTP 405면 PUT으로 한 번 재시도 (405는 실행 안 된 것이라 안전)"
+    "method는 캡처에서 확인 못 함: POST로 보내고 HTTP 405면 PUT으로 한 번 재시도 (405는 실행 안 된 것이라 안전)",
+    "2026-11-28 랩(SCP 6.11.3) 실측 검증 완료: drill_start, drill_cleanup, clear_state"
   ],
   "endpoints": {
     "drill_start": {
@@ -29,7 +30,7 @@
         ],
         "action": "drill"
       },
-      "verified": false
+      "verified": true
     },
     "drill_cleanup": {
       "api": "console",
@@ -48,7 +49,7 @@
           "finish"
         ]
       },
-      "verified": false
+      "verified": true
     },
     "failover": {
       "api": "console",
@@ -94,7 +95,7 @@
           "ready"
         ]
       },
-      "verified": false
+      "verified": true
     }
   }
 }
